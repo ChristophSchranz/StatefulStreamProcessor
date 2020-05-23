@@ -1,0 +1,11 @@
+[Unit]
+Description=Autostart Kafka Service
+After=network.target
+
+[Service]
+WorkingDirectory=/kafka
+ExecStart=/kafka/bin/kafka-server-start.sh /kafka/config/server.properties
+ExecReload=/kafka/bin/kafka-server-stop.sh
+
+[Install]
+WantedBy=multi-user.target
