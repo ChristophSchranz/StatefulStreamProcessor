@@ -23,6 +23,11 @@ The maximum sample rate is around 1 kS/s.
 
 ## 02 MQTT Broker
 
+This step requires a running docker-compose installation. Therefore, run:
+
+1. Install [Docker](https://www.docker.com/community-edition#/download) version **1.10.0+**
+2. Install [Docker Compose](https://docs.docker.com/compose/install/) version **1.6.0+**
+
 To set up the MQTT Broker locally with the default
 port of `1883`, run:
 
@@ -45,6 +50,17 @@ docker-compose stop
 
 ## 03 Stream Connector
 
+To install the requirements for the Stream Connector, run these lines:
+
+```bash
+# Install Kafka version 2.5 to /kafka
+cd 03_Stream_Connector
+bash install_kafka_libs-1v4.sh
+pip install confluent-kafka==1.4.2
+```
+
+
+
 
 ## 04 Kafka
 
@@ -52,6 +68,7 @@ To setup Apache Kafka, run these lines:
 
 ```bash
 # Install Kafka version 2.5 to /kafka
+cd 04_Kafka
 bash install_kafka-2v5.sh
 # Copy the systemd service files
 sudo cp zookeeper.service /etc/systemd/system/zookeeper.service 
@@ -84,7 +101,7 @@ Now, we can create our topic with the specified configs. Note that the MQTT reco
 
 ```bash
 /kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic machine.data --replication-factor 1 --partitions 5 --config cleanup.policy=compact --config retention.ms=172800000
-/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic machine.out --replication-factor 1 --partitions 5 --config cleanup.policy=compact --config retention.ms=172800000
+/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic machine.out --replication-factor 1 --partitions 3 --config cleanup.policy=compact --config retention.ms=172800000
 # check if the topic was created with the correct configs:
 /kafka/bin/kafka-topics.sh --bootstrap-server :2181 --describe --topic machine.data
 ```
