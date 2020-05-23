@@ -122,5 +122,12 @@ After that, you can stream messages of the form `[key],[value]` from the produce
 e.g. `0,helloKafka`.
 
 
+## 05 Flink
+
+To install Apache Flink, simply run:
+
+```bash
+pip install apache-flink
+```
 
 
