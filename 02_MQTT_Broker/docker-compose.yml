@@ -1,0 +1,10 @@
+version: '3.4'
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:1.5
+#    env_file:
+#      - .env
+    ports:
+      - "1883:1883"
+      - "9001:9001"
