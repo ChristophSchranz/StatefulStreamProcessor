@@ -129,3 +129,4 @@ dmypy.json
 .pyre/
 .idea
 /01_Simulator/events.json
+/05_Flink_Setup/flink/
