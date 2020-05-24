@@ -125,6 +125,22 @@ e.g. `0,helloKafka`.
 
 ## 05 Flink Setup
 
+Download Flink and extract to `/flink`:
+```bash
+wget https://mirror.klaus-uwe.me/apache/flink/flink-1.10.1/flink-1.10.1-bin-scala_2.12.tgz
+tar -xvf flink-1.10.1-bin-scala_2.12.tgz
+sudo cp -a flink-1.10.1 /flink
+rm -r flink-1.10.1
+cd /flink
+```
+To start the GUI of Flink on [localhost:8081](http://localhost:8081/#/), 
+and try a WordCount example, run:
+```bash
+/flink/bin/start-cluster.sh
+/flink/bin/flink run /flink/examples/streaming/WordCount.jar --input $(pwd)/01_Simulator/events.json --output $(pwd)/01_Simulator/eventsWordCount.out
+```
+
+
 To install Apache Flink, simply run:
 
 ```bash

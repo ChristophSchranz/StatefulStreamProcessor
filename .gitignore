@@ -130,3 +130,6 @@ dmypy.json
 .idea
 /01_Simulator/events.json
 /05_Flink_Setup/flink/
+/01_Simulator/eventsWordCount.out
+/06_Flink/.idea
+/06_Flink/target
