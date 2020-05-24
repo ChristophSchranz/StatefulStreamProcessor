@@ -207,6 +207,8 @@ curl -G 'http://localhost:8086/query?db=mydb&pretty=true' --data-urlencode 'q=SE
 ```
 More API interface examples can be found [here](https://docs.influxdata.com/influxdb/v1.8/tools/api/).
 
+It is important, that the attributes `time` and all `tags` are
+the primary key and must be unique.
 
 ### First steps in Grafana
 

@@ -7,7 +7,7 @@ BROKER_HOST = "localhost"
 BROKER_PORT = 1883
 EVENT_FILE = "events.json"      # file of the records, not a json itself, but each row is
 TOPIC_NAME = "machine/states"   # mqtt topic name to produce to
-SAMPLE_RATE = 10                # sample rate in messages per second
+SAMPLE_RATE = 1                 # sample rate in messages per second
 READ_FIRST_N = None             # only read the first n lines of the file
 
 st0 = st_t = time.time()
