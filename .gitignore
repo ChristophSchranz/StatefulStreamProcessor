@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 .idea
 /01_Simulator/events.json
-/05_Flink_Setup/flink/
+/06_Flink_Python/flink/
 /01_Simulator/eventsWordCount.out
-/06_Flink/.idea
-/06_Flink/target
+/05_Flink_Java/.idea
+/05_Flink_Java/target

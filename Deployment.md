@@ -123,7 +123,7 @@ After that, you can stream messages of the form `[key],[value]` from the produce
 e.g. `0,helloKafka`.
 
 
-## 05 Flink Setup
+## 05 Flink in Java
 
 Download Flink and extract to `/flink`:
 ```bash
@@ -140,18 +140,39 @@ and try a WordCount example, run:
 /flink/bin/flink run /flink/examples/streaming/WordCount.jar --input $(pwd)/01_Simulator/events.json --output $(pwd)/01_Simulator/eventsWordCount.out
 ```
 
+In `05_Flink_Java`, there is an Intellij project.
 
-To install Apache Flink, simply run:
+
+
+## 06 Flink in Python
+
+Load the required Jar files into `/flink/lib`, which can be found on [maven](https://search.maven.org/search?q=flink%20kafka).
+
+```
+flink-connector-kafka_2.12-1.10.1.jar       
+flink-json-1.10.1.jar                  
+flink-connector-kafka-base_2.12-1.10.1.jar  
+flink-sql-connector-kafka_2.11-1.10.0.jar  
+kafka-clients-2.5.0.jar             
+log4j-1.2.17.jar
+```
+Then, it should be possible to test the word count test:
+
+```bash
+/flink/bin/start-cluster.sh
+/flink/bin/flink run -py 06_Flink_Python/WordCount.py
+```
+This writes an output file into `tmp/results`.
+
+
+To install Pyflink, simply run:
 
 ```bash
 pip install apache-flink
 ```
 
+More has not been tested yet. 
 
-## 06 Flink
-
-This section explains how to start the stream processing 
-within Flink.
 
 ## 07 DB Connector
 
