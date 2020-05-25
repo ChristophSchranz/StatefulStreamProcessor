@@ -38,7 +38,9 @@ public class KafkaEventSchema implements DeserializationSchema<KafkaEvent>, Seri
 
 	@Override
 	public KafkaEvent deserialize(byte[] message) throws IOException {
-		return KafkaEvent.fromString(new String(message));
+		String str = new String(message);
+		System.out.println(message);
+		return KafkaEvent.fromString(str);
 	}
 
 	@Override
