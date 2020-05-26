@@ -142,7 +142,8 @@ and try a WordCount example, run:
 
 The directory `05_Flink_Java` is an Intellij project, in that the class
 `KafkaExample.java` successfully forwards data from `machine.data` to `machine.out`.
-Therefore, make sure to install all maven dependencies from `pom.xml`.
+Therefore, create a new maven/java project with Intelliji IDEA and 
+make sure to install all maven dependencies from `pom.xml`.
 
 You can also create a jar file from the java project with a maven `clean` and `install`.
 The resulting file `target/KafkaExample.jar` can be uploaded to the 
