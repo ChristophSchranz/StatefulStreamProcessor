@@ -33,6 +33,9 @@ public class KafkaEventSchema implements DeserializationSchema<KafkaEvent>, Seri
 
 	@Override
 	public byte[] serialize(KafkaEvent event) {
+		System.out.println(event);
+		System.out.println(event.toString());
+
 		return event.toString().getBytes();
 	}
 

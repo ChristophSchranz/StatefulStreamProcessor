@@ -1,19 +1,13 @@
 package com.github.stateful;
 
+// make sure that the maven dependencies are correctly set!
 
-
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
-import org.apache.flink.streaming.connectors.kafka.internals.KeyedSerializationSchemaWrapper;
-//import org.apache.flink.streaming.kafka.test.base.CustomWatermarkExtractor;
-//import org.apache.flink.streaming.kafka.test.base.KafkaEvent;
-//import org.apache.flink.streaming.kafka.test.base.KafkaEventSchema;
-//import org.apache.flink.streaming.kafka.test.base.KafkaExampleUtil;
-//import org.apache.flink.streaming.kafka.test.base.RollingAdditionMapper;
 
 /**
  * A simple example that shows how to read from and write to modern Kafka. This will read String messages
@@ -31,55 +25,48 @@ import org.apache.flink.streaming.connectors.kafka.internals.KeyedSerializationS
 public class KafkaExample extends KafkaExampleUtil {
 
     public static void main(String[] args) throws Exception {
-        System.out.println(args[0]);
-        // parse input arguments
+        // load input arguments or using defaults if none were given
+        if (args.length <= 1) {
+            System.out.println("no arguments were given, using default arguments:");
+            args = new String[]{"--input-topic", "machine.data", "--output-topic", "machine.out", "--bootstrap.servers",
+                    "localhost:9092", "--zookeeper.connect", "localhost:2181", "--group.id", "myconsumer"};
+        } else
+            System.out.println("Arguments:");
+        for (String a: args)
+            System.out.print(a + " ");
+        System.out.println();
+
+        // parse input arguments to new instance of Flink's ParameterTool class
         final ParameterTool parameterTool = ParameterTool.fromArgs(args);
-        System.out.println(parameterTool.getRequired("input-topic"));
         StreamExecutionEnvironment env = KafkaExampleUtil.prepareExecutionEnv(parameterTool);
 
-        FlinkKafkaConsumer<KafkaEvent> source = new FlinkKafkaConsumer<>(
+//      input string {"thing": "R0815", "quantity": "vaCurr_X10", "phenomenonTime": 1554101188221, "result": 5.81060791015625}
+
+        // create Kafka Consumer
+        FlinkKafkaConsumer<String> source = new FlinkKafkaConsumer<>(
                 parameterTool.getRequired("input-topic"),
-                new KafkaEventSchema(),
+                new SimpleStringSchema(),  // load records as String, should be changed later
                 parameterTool.getProperties());
 
-//        DataStreamSink<String> streamexample = env.addSource(source).print();
-        DataStream<KafkaEvent> input = env.addSource(source);
+        // create data-stream
+        DataStream<String> input = env.addSource(source);
 //                keyBy("timestamp");
 //                map(new RollingAdditionMapper());
 
-        //DataStream<KafkaEvent> input = env
-//        DataStream<String> input = env
-//                .addSource(
-//                        new FlinkKafkaConsumer(
-//                                parameterTool.getRequired("input-topic"),
-//                                //new KafkaEventSchema(),
-//                                new SimpleStringSchema(),
-//                                parameterTool.getProperties())
-//                                .assignTimestampsAndWatermarks(new CustomWatermarkExtractor()))
-//                .print();
-                //.keyBy("word")
-                //.map(new RollingAdditionMapper());
+        // print input in stdout
         input.print();
-        // leads to:
-        // java.lang.NumberFormatException: For input string: " "quantity": "measPos1_Q20""
+
+        // add sink to data-stream
         input.addSink(
                 new FlinkKafkaProducer<>(
                         parameterTool.getRequired("output-topic"),
 //                        new KeyedSerializationSchemaWrapper<>(new KafkaEventSchema()),
-                        new KafkaEventSchema(),
+                        new SimpleStringSchema(),  // load records as String, should be changed later
                         parameterTool.getProperties())
 //                        FlinkKafkaProducer.Semantic.EXACTLY_ONCE)
         );
 
-//        input.addSink(
-//                new FlinkKafkaProducer<>(
-//                        parameterTool.getRequired("bootstrap.servers"),
-//                        parameterTool.getRequired("output-topic"),
-//                        new KeyedSerializationSchemaWrapper<>(new KafkaEventSchema()),
-//                        FlinkKafkaProducer.Semantic.EXACTLY_ONCE)
-//        );
-
+        // execute the data-stream
         env.execute("Modern Kafka Example");
     }
-
 }

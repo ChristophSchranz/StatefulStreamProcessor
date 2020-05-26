@@ -140,8 +140,19 @@ and try a WordCount example, run:
 /flink/bin/flink run /flink/examples/streaming/WordCount.jar --input $(pwd)/01_Simulator/events.json --output $(pwd)/01_Simulator/eventsWordCount.out
 ```
 
-In `05_Flink_Java`, there is an Intellij project.
+The directory `05_Flink_Java` is an Intellij project, in that the class
+`KafkaExample.java` successfully forwards data from `machine.data` to `machine.out`.
+Therefore, make sure to install all maven dependencies from `pom.xml`.
 
+You can also create a jar file from the java project with a maven `clean` and `install`.
+The resulting file `target/KafkaExample.jar` can be uploaded to the 
+[local Flink Cluster](http://localhost:8081) and deployed.
+
+In both cases, you can check if the forwarding works by watching new arriving data via:
+(make sure that there is data in the topic `machine.data`)
+```bash
+/kafka/bin/kafka-console-consumer.sh --bootstrap-server 127.0.0.1:9092 --topic machine.out
+```
 
 
 ## 06 Flink in Python
