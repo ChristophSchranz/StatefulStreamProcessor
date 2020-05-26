@@ -154,6 +154,11 @@ In both cases, you can check if the forwarding works by watching new arriving da
 /kafka/bin/kafka-console-consumer.sh --bootstrap-server 127.0.0.1:9092 --topic machine.out
 ```
 
+<br>
+
+The class `KafkaProcessor` should do our job later on. Currently, it only 
+creates a HashMap from the Kafka Input String and prints the quantity name.
+
 
 ## 06 Flink in Python
 
