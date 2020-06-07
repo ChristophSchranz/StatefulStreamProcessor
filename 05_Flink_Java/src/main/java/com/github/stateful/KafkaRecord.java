@@ -1,21 +1,20 @@
 package com.github.stateful;
 
 import java.io.Serializable;
+import java.util.Properties;
 
 import lombok.Data;
 
-@SuppressWarnings("serial")
+
 @Data
 public class KafkaRecord implements Serializable
 {
     String key;
-    public String value; //TODO should be double
-    Long timestamp;
+    public Properties content;
+    long timestamp;
 
     @Override
-    public String toString()
-    {
-        return key+":"+value;
+    public String toString() {
+        return key + ": " + content.toString();
     }
-
 }
