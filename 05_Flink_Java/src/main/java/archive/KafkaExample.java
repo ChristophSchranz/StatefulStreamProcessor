@@ -1,4 +1,4 @@
-package com.github.stateful;
+package archive;
 
 // make sure that the maven dependencies are correctly set!
 
@@ -14,7 +14,6 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer.Semantic;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.apache.flink.api.common.functions.AggregateFunction;
 
 import java.time.LocalTime;
 

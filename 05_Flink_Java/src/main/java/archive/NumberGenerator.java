@@ -1,4 +1,4 @@
-package com.github.stateful;
+package archive;
 
 
 public class NumberGenerator extends Thread

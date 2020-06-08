@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-package com.github.stateful;
+package archive;
 
+import archive.KafkaEvent;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;

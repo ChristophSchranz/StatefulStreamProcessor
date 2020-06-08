@@ -41,7 +41,7 @@ public class StreamJoiner
         TOPIC_OUT = parameterTool.getRequired("output-topic");
         BOOTSTRAP_SERVER = parameterTool.getRequired("bootstrap.servers");
 
-        Producer<String> p = new Producer<String>(BOOTSTRAP_SERVER, StringSerializer.class.getName());
+//        Producer<String> p = new Producer<String>(BOOTSTRAP_SERVER, StringSerializer.class.getName());
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         // to use allowed lateness, set to EventTime
@@ -166,7 +166,7 @@ public class StreamJoiner
         System.out.println( env.getExecutionPlan() );
 
         // start flink
-        env.execute();
+        env.execute("Stream Joiner");
     }
 
 
@@ -192,6 +192,4 @@ public class StreamJoiner
         long time_2 = Long.parseLong(rec_2.content.getProperty("phenomenonTime"));
         return (int)(time_1 - time_2);
     }
-
 }
-

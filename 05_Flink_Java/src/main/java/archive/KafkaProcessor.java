@@ -1,24 +1,15 @@
-package com.github.stateful;
+package archive;
 
 // make sure that the maven dependencies are correctly set!
 
-import org.apache.commons.collections.map.HashedMap;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonSerializable;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.jsonschema.JsonSerializableSchema;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
-import org.apache.flink.streaming.connectors.kafka.KafkaSerializationSchema;
-import org.apache.flink.streaming.connectors.kafka.internals.KeyedSerializationSchemaWrapper;
-import org.apache.flink.streaming.util.serialization.JSONKeyValueDeserializationSchema;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import scala.util.parsing.json.JSONObject$;
 
-import javax.annotation.Nullable;
 import java.util.HashMap;
 import java.util.Map;
 

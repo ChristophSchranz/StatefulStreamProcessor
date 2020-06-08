@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.github.stateful;
+package archive;
 
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.java.utils.ParameterTool;

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.github.stateful;
+package archive;
 
 /**
  * The event type used in the {@link Kafka010Example}.
