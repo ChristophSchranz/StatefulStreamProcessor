@@ -3,7 +3,8 @@
 
 import numpy as np
 from queue import Queue
-
+# import importlib
+# LinkedList = importlib.import_module('05_LocalStreamBuffer.doublylinkedlist')
 
 # Record is a record as streamed via Kafka, each record contains a set of fixed attributes
 class Record:
