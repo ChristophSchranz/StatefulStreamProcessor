@@ -6,6 +6,7 @@ from queue import Queue
 # import importlib
 # LinkedList = importlib.import_module('05_LocalStreamBuffer.doublylinkedlist')
 
+
 # Record is a record as streamed via Kafka, each record contains a set of fixed attributes
 class Record:
     def __init__(self, time, result=None, quantity=None):
@@ -29,8 +30,7 @@ class Record:
 # Check for join pairs and commits. W.l.o.G., there is a new record in r.
 def emit(buffer_r, buffer_s, leading=None):
     # Return if one of the Buffers is empty
-    print("\nNew emit()")
-    print(len(buffer_r), len(buffer_s))
+    print(f"\n -> emit <{len(buffer_r)}, {len(buffer_s)}>")
     if len(buffer_s) == 0 or len(buffer_r) == 0:
         return buffer_r
 
@@ -38,36 +38,59 @@ def emit(buffer_r, buffer_s, leading=None):
     r_1 = buffer_r[-1]  # latest record in buffer r, this one is new.
     r_2 = None if len(buffer_r) < 2 else buffer_r[-2]  # second to the latest record
     s_idx = 0
-    s_ = buffer_s[s_idx]  # first (= oldest) record of s
+    s_1 = buffer_s[s_idx]  # first (= oldest) record of s
+    # s_2 = None if len(buffer_s) < 2 else buffer_s[s_idx+1]  # second record
 
     # join r_2 with records from s with event times between r_2 and r_1
     if r_2 is not None:
-        while s_ is not None and s_.get("record").get_time() < r_1.get("record").get_time():
-            if s_.get("record").get_time() > r_2.get("record").get_time():
-                join(r_2, s_, leading)
+        while s_1 is not None and s_1.get("record").get_time() < r_1.get("record").get_time():
+            if r_2.get("record").get_time() < s_1.get("record").get_time():
+                join(r_2, s_1, leading)
                 if not r_2.get("was_older"):
                     r_2["was_older"] = True
             s_idx += 1              # load next entry in s
-            s_ = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+            s_1 = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+            # s_2 = buffer_s[s_idx+1] if s_idx + 1 < len(buffer_s) else None
 
     s_idx = 0
-    s_ = buffer_s[s_idx]  # first (= oldest) record of s
+    s_1 = buffer_s[s_idx]  # first (= oldest) record of s
     # join r_1 with with records from s with event times between r_2 and r_1
-    while s_ is not None and s_.get("record").get_time() > r_1.get("record").get_time():
-        if r_2 is None or s_.get("record").get_time() > r_2.get("record").get_time():
-            join(r_1, s_, leading)
-            if not s_.get("was_older"):
-                s_["was_older"] = True
+    while s_1 is not None and s_1.get("record").get_time() <= r_1.get("record").get_time():
+        if r_2 is None or r_2.get("record").get_time() < s_1.get("record").get_time():
+            join(r_1, s_1, leading)
+            if not s_1.get("was_older"):
+                s_1["was_older"] = True
         s_idx += 1              # load next entry in s
-        s_ = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+        s_1 = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+
+    # # join r_2 with records from s with event times between r_2 and r_1
+    # if r_1 is None or r_1.get("record").get_time() < s_1.get("record").get_time():  # don't join if there is no s_2
+    #     while s_1.get("record").get_time() < r_2.get("record").get_time():
+    #         if r_1.get("record").get_time() < s_1.get("record").get_time() <= r_2.get("record").get_time():
+    #             join(r_2, s_1, leading)
+    #             if not s_1.get("was_older"):
+    #                 s_1["was_older"] = True
+    #         s_idx += 1              # load next entry in s
+    #         s_1 = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+    #         s_2 = buffer_s[s_idx+1] if s_idx + 1 < len(buffer_s) else None
 
     # try to commit & remove deprecated records based on a record criteria (cases, B and E)
-    s_ = buffer_s[-1]  # load latest entry of s
-    if r_2 is not None and r_2.get("record").get_time() < r_1.get("record").get_time() <= s_.get("record").get_time():
+    strip_buffers(buffer_r, buffer_s)
+    strip_buffers(buffer_s, buffer_r)
+
+    return buffer_r
+
+def strip_buffers(buffer_r, buffer_s):
+    s_1 = buffer_s[-1]  # load the latest (newest) entry of s
+    r_1 = buffer_r[0]
+    r_2 = None if len(buffer_r) < 2 else buffer_r[1]
+    while r_2 is not None and r_2.get("record").get_time() < r_1.get("record").get_time() <= s_1.get("record").get_time():
         # commit r_2 in the data streaming framework
         # remove r_2 from the buffer r
         buffer_r = buffer_r[1:]
-    return buffer_r
+        r_1 = buffer_r[0]
+        r_2 = None if len(buffer_r) < 2 else buffer_r[1]
+
 
 
 # Joins two tuples if not already done and produces the pair.
@@ -99,31 +122,34 @@ if __name__ == "__main__":
     # unload the input and stream the messages based on the order into the buffer queues
     buffer_r = list()
     buffer_s = list()
-    leading = "r"
-    ingestionOrder = ["r", "s"] * 10            # works
-    ingestionOrder = ["r", "s", "s"] * 10       # works not fully
+    leading = None # "r"
+    ingestionOrder = ["r", "s"] * 5            # works
+    ingestionOrder = ["r"] * 5 + ["s"] * 5      # works not fully
     for i in range(len(ingestionOrder)):
         # decide based on the ingestion order which stream record is forwarded
         # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
         if ingestionOrder[i] == "r":
             # receive the first record from the event stream
+            if len(events_r) == 0:
+                continue
             record = events_r[0]
-            buffer_r.append({"record": record, "was_older": False})
+            buffer_r.append({"ts": record.get_time(), "record": record, "was_older": False})
             events_r = events_r[1:]
             buffer_r = emit(buffer_r, buffer_s, leading=leading)
         elif ingestionOrder[i] == "s":
             # receive the first record from the event stream
+            if len(events_s) == 0:
+                continue
             record = events_s[0]
-            buffer_s.append({"record": record, "was_older": False})
+            buffer_s.append({"ts": record.get_time(), "record": record, "was_older": False})
             events_s = events_s[1:]
             buffer_s = emit(buffer_s, buffer_r, leading=leading)
 
         # if delay_timeout is not Null:
         #    time_commit()
-
         # test methods to time join the buffer's records
 
-    for rec in buffer_r.queue:
+    for rec in buffer_r:
         print(rec)
-    for rec in buffer_s.queue:
+    for rec in buffer_s:
         print(rec)
