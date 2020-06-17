@@ -128,21 +128,21 @@ public class StreamJoiner
                         }
 
                         Properties payload = new Properties();
-                        payload.put("thing", latest_s.content.getProperty("thing"));
-                        payload.put("quantity", "power" + quantity_group(latest_r.content.getProperty("quantity")));
+                        payload.put("\"thing\"", "\"" + latest_s.content.getProperty("thing") + "\"");
+                        payload.put("\"quantity\"", "\"" + "power" + quantity_group(latest_r.content.getProperty("quantity")) + "\"");
                         if (latest_r.content.getProperty("phenomenonTime").compareTo(
                                 latest_s.content.getProperty("phenomenonTime")) > 0)
-                            payload.put("phenomenonTime", latest_r.content.getProperty("phenomenonTime"));
+                            payload.put("\"phenomenonTime\"", latest_r.content.getProperty("phenomenonTime"));
                         else
-                            payload.put("phenomenonTime", latest_s.content.getProperty("phenomenonTime"));
+                            payload.put("\"phenomenonTime\"", latest_s.content.getProperty("phenomenonTime"));
 
                         // calculate the resulting power
                         double res = (2*Math.PI/60) * Double.parseDouble(latest_r.content.getProperty("result")) *  Double.parseDouble(latest_s.content.getProperty("result"));
-                        payload.put("result", String.valueOf((float)res));
+                        payload.put("\"result\"", String.valueOf((float)res));
 
                         // the payload must be a String were the record payloads are separated by "\n"
 //                        return payload.toString() + "\n" + payload.toString();
-                        return payload.toString();
+                        return payload.toString().replace("=", ":");
                     }
 
                     @Override
