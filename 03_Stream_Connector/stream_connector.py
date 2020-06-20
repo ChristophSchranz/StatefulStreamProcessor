@@ -44,6 +44,7 @@ def on_message(client, userdata, msg):
     thing_id = payload["Thing"]
     timestamp = payload["Timestamp"]
     id = payload["id"]
+    kafka_producer.poll(0)
     for quantity in quantities:
         record = {"thing": thing_id,
                   "quantity": quantity,
@@ -51,7 +52,6 @@ def on_message(client, userdata, msg):
                   "result": payload[quantity]}
 
         # Asynchronously produce a Kafka message, the delivery report callback, the key must be thing + quantity
-        kafka_producer.poll(0)
         kafka_producer.produce(KAFKA_TOPIC, json.dumps(record).encode('utf-8'),
                                key=f"{thing_id}.{quantity}".encode('utf-8'), callback=delivery_report)
     kafka_producer.flush()
