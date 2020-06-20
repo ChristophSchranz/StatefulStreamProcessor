@@ -21,6 +21,8 @@ services:
       - monitoring
     env_file:
       - .env
+    environment:
+      - bla=12
 #    volumes:
 #      - influxdb-volume:/var/lib/influxdb
 
