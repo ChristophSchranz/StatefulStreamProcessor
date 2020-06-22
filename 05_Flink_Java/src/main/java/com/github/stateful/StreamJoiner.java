@@ -1,7 +1,9 @@
 package com.github.stateful;
 
+import java.text.NumberFormat;
 import java.util.*;
 
+import com.google.gson.Gson;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -42,7 +44,6 @@ public class StreamJoiner
         BOOTSTRAP_SERVER = parameterTool.getRequired("bootstrap.servers");
 
 //        Producer<String> p = new Producer<String>(BOOTSTRAP_SERVER, StringSerializer.class.getName());
-
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         // to use allowed lateness, set to EventTime
         env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
@@ -102,6 +103,7 @@ public class StreamJoiner
                     }
 
                     @Override
+                    // the functions join works similar to Vertica's INTERPOLATE ON PREVIOUS VALUE
                     public String getResult(ArrayList<KafkaRecord> accumulator) {
 //                        // To print the accumulated records, uncomment this:
 //                        return accumulator.toString();
@@ -110,39 +112,45 @@ public class StreamJoiner
                         // sort KafkaRecords in accumulator by Event Time
                         accumulator.sort(StreamJoiner::compare_timestamps);
 
+                        Gson gson = new Gson();
+
                         // search for the two latest join partners
                         KafkaRecord latest_r = null;
                         KafkaRecord latest_s = null;
-                        for (int idx=0; idx<accumulator.size(); idx++) {
+                        String joined_records = "";
+                        for (int idx=accumulator.size()-1; idx>=0; idx--) {
                             if (accumulator.get(idx).content.getProperty("quantity").startsWith("vaTorque_Z")) {
                                 latest_r = accumulator.get(idx);
                             }
                             if (accumulator.get(idx).content.getProperty("quantity").startsWith("vaLoad_Z")) {
                                 latest_s = accumulator.get(idx);
                             }
-                        }
-                        // return null if there are no join partners
-                        if (latest_r == null || latest_s == null) {
-                            System.out.println("  no two join partners.");
-                            return null;
-                        }
+                            // if there is a value of both metrics, join them
+                            if (latest_r != null && latest_s != null) {
+                                // join selected records and append them to the joined_records ArrayList
+                                Properties payload = new Properties();
+                                payload.put("thing", latest_s.content.getProperty("thing"));
+                                payload.put("quantity", "power" + quantity_group(latest_r.content.getProperty("quantity")));
+                                if (latest_r.content.getProperty("phenomenonTime").compareTo(
+                                        latest_s.content.getProperty("phenomenonTime")) > 0)
+                                    payload.put("phenomenonTime", latest_r.content.getProperty("phenomenonTime"));
+                                else
+                                    payload.put("phenomenonTime", latest_s.content.getProperty("phenomenonTime"));
 
-                        Properties payload = new Properties();
-                        payload.put("thing", latest_s.content.getProperty("thing"));
-                        payload.put("quantity", "power" + quantity_group(latest_r.content.getProperty("quantity")));
-                        if (latest_r.content.getProperty("phenomenonTime").compareTo(
-                                latest_s.content.getProperty("phenomenonTime")) > 0)
-                            payload.put("phenomenonTime", latest_r.content.getProperty("phenomenonTime"));
-                        else
-                            payload.put("phenomenonTime", latest_s.content.getProperty("phenomenonTime"));
+                                // calculate the resulting power and transfer it into a non-scientific float
+                                double res = 100 * 1000 * (2*Math.PI/60)
+                                        * Double.parseDouble(latest_r.content.getProperty("result"))
+                                        *  Double.parseDouble(latest_s.content.getProperty("result"));
+                                payload.put("result", res);
 
-                        // calculate the resulting power
-                        double res = (2*Math.PI/60) * Double.parseDouble(latest_r.content.getProperty("result")) *  Double.parseDouble(latest_s.content.getProperty("result"));
-                        payload.put("result", String.valueOf((float)res));
+                                // append
+                                joined_records = gson.toJson(payload) + "\n" + joined_records;
+                            }
+                        }
 
                         // the payload must be a String were the record payloads are separated by "\n"
 //                        return payload.toString() + "\n" + payload.toString();
-                        return payload.toString();
+                        return joined_records;
                     }
 
                     @Override
