@@ -57,14 +57,15 @@ def on_message(client, userdata, msg):
     kafka_producer.flush()
 
 
-# create the MQTT client and set the on_connect and on_message methods
-client = mqtt.Client()
-client.on_connect = on_connect
-client.on_message = on_message
-client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
+if __name__ == "__main__":
+    # create the MQTT client and set the on_connect and on_message methods
+    client = mqtt.Client()
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
 
-# create a Kafka Producer
-kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
+    # create a Kafka Producer
+    kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
 
-# start the consumption of MQTT messages in an infinite loop
-client.loop_forever()
+    # start the consumption of MQTT messages in an infinite loop
+    client.loop_forever()
