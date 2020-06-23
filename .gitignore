@@ -133,3 +133,4 @@ dmypy.json
 /01_Simulator/eventsWordCount.out
 /05_Flink_Java/.idea
 /05_Flink_Java/target
+*.save

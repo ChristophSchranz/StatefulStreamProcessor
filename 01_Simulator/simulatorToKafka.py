@@ -7,7 +7,7 @@ from confluent_kafka import Producer
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092" # of the form 'mybroker1,mybroker2'
 KAFKA_TOPIC = "machine.data"   # mqtt topic name to produce to
 EVENT_FILE = "events.json"      # file of the records, not a json itself, but each row is
-SAMPLE_RATE = 10             # sample rate in messages per second
+SAMPLE_RATE = 100_000             # sample rate in messages per second
 READ_FIRST_N = None             # only read the first n lines of the file
 VERBOSE = False
 
@@ -32,6 +32,7 @@ if __name__ == "__main__":
     # create a Kafka Producer
     kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
 
+    # open the file containing the events
     with open(EVENT_FILE) as f:
         events = f.readlines()
 
@@ -76,4 +77,4 @@ if __name__ == "__main__":
         print("Graceful stopped.")
 
     kafka_producer.flush()
-    print(f"Finished in {(time.time() - st0) / i} s per publish. Wrote {i} records.")
+    print(f"Finished in {(time.time() - st0) / i:.6g} s per publish. Wrote {i} records.")
