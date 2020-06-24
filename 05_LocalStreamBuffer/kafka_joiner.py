@@ -2,14 +2,15 @@
 
 # script to test the algorithm for the local stream buffering approach.
 import json
+import math
 import time
 from confluent_kafka import Producer, Consumer
+
 try:
     from .local_stream_buffer import Record, StreamBuffer, record_from_dict
 except ModuleNotFoundError:
     # noinspection PyUnresolvedReferences
     from local_stream_buffer import Record, StreamBuffer, record_from_dict
-
 
 # of the form 'mybroker1,mybroker2'
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
@@ -47,8 +48,8 @@ def join_fct(record_r, record_s):
     #                 result=record_r.get_result() * record_s.get_result(),
     #                 timestamp=(record_r.get_time() + record_s.get_time()) / 2)
     record = dict({"thing": record_r.get("thing"), "quantity": "t",
-                    "result": record_r.get_result() * record_s.get_result(),
-                    "timestamp": (record_r.get_time() + record_s.get_time()) / 2})
+                   "result": (2 * math.pi / 60) * record_r.get_result() * record_s.get_result(),
+                   "timestamp": (record_r.get_time() + record_s.get_time()) / 2})
     # produce a Kafka message, the delivery report callback, the key must be thing + quantity
     kafka_producer.produce(KAFKA_TOPIC_TO, json.dumps(record).encode('utf-8'),
                            key=f"{record.get('thing')}.{record.get('quantity')}".encode('utf-8'),
@@ -106,7 +107,7 @@ if __name__ == "__main__":
                 if "Torque" in record_json.get("quantity"):
                     stream_buffer.ingest_r(record)  # instant emit
                     cnt_r += 1
-                else:
+                elif "Load" in record_json.get("quantity"):
                     stream_buffer.ingest_s(record)
                     cnt_s += 1
             except json.decoder.JSONDecodeError as e:
@@ -116,7 +117,8 @@ if __name__ == "__main__":
         kafka_consumer.close()
         print("\nGraceful stopping.")
 
-    print(f"\nReceived {cnt_r + cnt_s} records within {time.time()-st0:.3f} s, that are {(cnt_r+cnt_s)/(time.time()-st0):.8g} records/s.")
+    print(
+        f"\nReceived {cnt_r + cnt_s} records within {time.time() - st0:.3f} s, that are {(cnt_r + cnt_s) / (time.time() - st0):.8g} records/s.")
     print(f"Joined time-series {time.time() - st0:.2f} s long, "
-          f"that are {cnt_t.get()/(time.time()-st0):.8g} records/s.")
+          f"that are {cnt_t.get() / (time.time() - st0):.8g} records/s.")
     print(f"length of |event_t| = {cnt_t.get()}, |r| = {cnt_s}, |s| = {cnt_s}.")

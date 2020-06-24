@@ -176,10 +176,8 @@ In both cases, you can check if the forwarding works by watching new arriving da
 
 #### TODOs:
 
- - [ ] Merge class for multiple joins
  - [ ] Intelligent windowing
  - [ ] Create config file for calculations
- - [ ] Repair the generation of the jar file
 
 ### Flink in Python
 
@@ -223,7 +221,7 @@ This step requires a reachable InfluxDB endpoint on [localhost:8086](localhost:8
 To start the application, run:
 
 ```bash
-cd 07_DB_Connector
+cd 06_DB_Connector
 python db_connector.py
 ``` 
 
@@ -240,7 +238,7 @@ nodes!**
 
 To start InfluxDB and also Grafana, run`
 ```bash
-cd 08_InfluxDB
+cd 07_InfluxDB_Grafana
 docker-compose up -d
 ``` 
 

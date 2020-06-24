@@ -7,7 +7,7 @@ from confluent_kafka import Producer
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092" # of the form 'mybroker1,mybroker2'
 KAFKA_TOPIC = "machine.data"   # mqtt topic name to produce to
 EVENT_FILE = "events.json"      # file of the records, not a json itself, but each row is
-SAMPLE_RATE = 100_000             # sample rate in messages per second
+SAMPLE_RATE = 100             # sample rate in messages per second
 READ_FIRST_N = None             # only read the first n lines of the file
 VERBOSE = False
 

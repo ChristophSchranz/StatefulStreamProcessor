@@ -6,7 +6,7 @@ from influxdb import InfluxDBClient
 
 # of the form 'mybroker1,mybroker2'
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-KAFKA_TOPICS = ["machine.data", "machine.out"]
+KAFKA_TOPICS = ["machine.out"]
 VERBOSE = True
 
 
@@ -52,7 +52,7 @@ if __name__ == "__main__":
                     "thing": record["thing"],
                     "quantity": record["quantity"]
                 },
-                "time": extract_time(record["phenomenonTime"]),
+                "time": extract_time(int(record["phenomenonTime"])),
                 "fields": {
                     "result": record["result"]
                 }
