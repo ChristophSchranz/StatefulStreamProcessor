@@ -10,6 +10,7 @@ import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
@@ -87,8 +88,8 @@ public class StreamJoiner
                 .filter((record) -> record.content != null && !record.content.isEmpty())
                 .filter((record) -> quantity_contains(record.content.getProperty("quantity")))
                 .keyBy(record -> quantity_group(record.content.getProperty("quantity")))
-                .timeWindow(Time.seconds(5))
-                .allowedLateness(Time.milliseconds(500))
+                .window(SlidingEventTimeWindows.of(Time.seconds(1), Time.milliseconds(500)))
+                .allowedLateness(Time.milliseconds(250))
                 .aggregate(new AggregateFunction<KafkaRecord, ArrayList<KafkaRecord>, String>()  // kafka aggregate API is very simple but same can be achieved by Flink's reduce
                 {
                     @Override
@@ -126,26 +127,29 @@ public class StreamJoiner
                                 latest_s = accumulator.get(idx);
                             }
                             // if there is a value of both metrics, join them
-                            if (latest_r != null && latest_s != null) {
-                                // join selected records and append them to the joined_records ArrayList
-                                Properties payload = new Properties();
-                                payload.put("thing", latest_s.content.getProperty("thing"));
-                                payload.put("quantity", "power" + quantity_group(latest_r.content.getProperty("quantity")));
-                                if (latest_r.content.getProperty("phenomenonTime").compareTo(
-                                        latest_s.content.getProperty("phenomenonTime")) > 0)
-                                    payload.put("phenomenonTime", latest_r.content.getProperty("phenomenonTime"));
-                                else
-                                    payload.put("phenomenonTime", latest_s.content.getProperty("phenomenonTime"));
+                            if (latest_r == null || latest_s == null)
+                                continue;
 
-                                // calculate the resulting power and transfer it into a non-scientific float
-                                double res = 100 * 1000 * (2*Math.PI/60)
-                                        * Double.parseDouble(latest_r.content.getProperty("result"))
-                                        *  Double.parseDouble(latest_s.content.getProperty("result"));
-                                payload.put("result", res);
+                            // join selected records and append them to the joined_records ArrayList
+                            Properties payload = new Properties();
+                            payload.put("thing", latest_s.content.getProperty("thing"));
+                            payload.put("quantity", "power" + quantity_group(latest_r.content.getProperty("quantity")));
 
-                                // append
-                                joined_records = gson.toJson(payload) + "\n" + joined_records;
-                            }
+                            // choose smaller timestamp
+                            if (latest_r.content.getProperty("phenomenonTime").compareTo(
+                                    latest_s.content.getProperty("phenomenonTime")) < 0)
+                                payload.put("phenomenonTime", latest_r.content.getProperty("phenomenonTime"));
+                            else
+                                payload.put("phenomenonTime", latest_s.content.getProperty("phenomenonTime"));
+
+                            // calculate the resulting power and transfer it into a non-scientific float
+                            double res = 100000 * (2*Math.PI/60)
+                                    * Double.parseDouble(latest_r.content.getProperty("result"))
+                                    *  Double.parseDouble(latest_s.content.getProperty("result"));
+                            payload.put("result", res);
+
+                            // append
+                            joined_records = gson.toJson(payload) + "\n" + joined_records;
                         }
 
                         // the payload must be a String were the record payloads are separated by "\n"
@@ -164,7 +168,6 @@ public class StreamJoiner
                 .filter((payload) -> payload != null && !payload.isEmpty())
                 .flatMap(new LineSplitter())
                 .keyBy((record) -> record)
-//                .split((payload) -> Arrays.asList(payload.split("[\\r\\n]+")))
                 .addSink(kafkaProducer);
 
         // produce a number as string every second
