@@ -134,3 +134,6 @@ dmypy.json
 /05_Flink_Java/.idea
 /05_Flink_Java/target
 *.save
+/06_DB_Connector/duplicates_checker.py
+/06_DB_Connector/result.out
+/05_Flink_Python/Flink_Test.py

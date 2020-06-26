@@ -7,9 +7,10 @@ from confluent_kafka import Producer
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092" # of the form 'mybroker1,mybroker2'
 KAFKA_TOPIC = "machine.data"   # mqtt topic name to produce to
 EVENT_FILE = "events.json"      # file of the records, not a json itself, but each row is
-SAMPLE_RATE = 100             # sample rate in messages per second
+SAMPLE_RATE = 10             # sample rate in messages per second
 READ_FIRST_N = None             # only read the first n lines of the file
 VERBOSE = False
+SKIP_FIRST_N = 99000            # skip the first n lines of the file, None by default
 
 
 # Delivery callback for Kafka Produce
@@ -34,14 +35,17 @@ if __name__ == "__main__":
 
     # open the file containing the events
     with open(EVENT_FILE) as f:
-        events = f.readlines()
+        if SKIP_FIRST_N:
+            events = f.readlines()[SKIP_FIRST_N:]
+        else:
+            events = f.readlines()
 
     i = 0
     try:
         # infinite loop to get a permanent stream to Kafka, which is faster than via MQTT
         while True:
             for line in events:
-                if "actSpeed" not in line and "vaTorque" not in line and "vaLoad" not in line:
+                if "actSpeed_C" not in line and "vaTorque_C" not in line:
                     continue
                 # Extract quantities from the line
                 payload = json.loads(line.replace("\n", ""))

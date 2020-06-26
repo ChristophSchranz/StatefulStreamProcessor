@@ -7,7 +7,7 @@ from influxdb import InfluxDBClient
 # of the form 'mybroker1,mybroker2'
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPICS = ["machine.out"]
-VERBOSE = True
+VERBOSE = False
 
 
 def extract_time(timestamp):
@@ -37,13 +37,17 @@ if __name__ == "__main__":
 
             # no msg within a second, continue
             if msg is None:
+                print("Received no further record from Kafka.")
                 continue
             if msg.error():
                 print("Consumer error: {}".format(msg.error()))
                 continue
 
             record = json.loads(msg.value().decode('utf-8'))
-            print('Received message: {}'.format(json.dumps(record)))
+            if not record.get("quantity").startswith("powerC"):
+                continue
+            if VERBOSE:
+                print('Received message: {}'.format(json.dumps(record)))
 
             # all tags and the time create together the key and must be unique
             row = [{
@@ -51,12 +55,12 @@ if __name__ == "__main__":
                 "tags": {
                     "thing": record["thing"],
                     "quantity": record["quantity"],
-                    "level": record["level"]
+                    "level": record.get("level", 0)
                 },
                 "time": extract_time(int(record["phenomenonTime"])),
                 "fields": {
                     "result": record["result"],
-                    "duration": record["duration"]
+                    "duration": record.get("duration", 0)
                 }
             }]
             client.write_points(row)

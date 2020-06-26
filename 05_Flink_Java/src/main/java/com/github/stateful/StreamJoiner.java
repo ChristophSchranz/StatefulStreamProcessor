@@ -88,7 +88,7 @@ public class StreamJoiner
                 .filter((record) -> record.content != null && !record.content.isEmpty())
                 .filter((record) -> quantity_contains(record.content.getProperty("quantity")))
                 .keyBy(record -> quantity_group(record.content.getProperty("quantity")))
-                .window(SlidingEventTimeWindows.of(Time.seconds(1), Time.milliseconds(500)))
+                .window(SlidingEventTimeWindows.of(Time.seconds(1), Time.milliseconds(250)))
                 .allowedLateness(Time.milliseconds(250))
                 .aggregate(new AggregateFunction<KafkaRecord, ArrayList<KafkaRecord>, String>()  // kafka aggregate API is very simple but same can be achieved by Flink's reduce
                 {
@@ -147,26 +147,26 @@ public class StreamJoiner
                                     * Double.parseDouble(latest_r.content.getProperty("result"))
                                     *  Double.parseDouble(latest_s.content.getProperty("result")));
 			    
-			    // some cosmetics
-			    if (res > 20000)
-				    res = 20000;
-			    
-			    // calculate power level
-			    int level = (int) (res/20000.1*5);
-			    switch(level) {
-				case 0: payload.put("level", "  0% ...  20%");
-					break;
-				case 1: payload.put("level", " 20% ...  40%");
-					break;
-				case 2: payload.put("level", " 40% ...  60%");
-					break;
-				case 3: payload.put("level", " 60% ...  80%");
-					break;
-				case 4: payload.put("level", " 80% ... 100%");
-					break;
-				default: payload.put("level", "  0% ...  20%");
-					break;
-			    }
+                            // some cosmetics
+                            if (res > 20000)
+                                res = 20000;
+
+                            // calculate power level
+                            int level = (int) (res/20000.1*5);
+                            switch(level) {
+                            case 0: payload.put("level", "  0% ...  20%");
+                                break;
+                            case 1: payload.put("level", " 20% ...  40%");
+                                break;
+                            case 2: payload.put("level", " 40% ...  60%");
+                                break;
+                            case 3: payload.put("level", " 60% ...  80%");
+                                break;
+                            case 4: payload.put("level", " 80% ... 100%");
+                                break;
+                            default: payload.put("level", "  0% ...  20%");
+                                break;
+                            }
 
                             payload.put("duration", 1);
                             payload.put("result", res);
