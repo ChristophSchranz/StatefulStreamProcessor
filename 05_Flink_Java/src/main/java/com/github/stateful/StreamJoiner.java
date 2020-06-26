@@ -120,10 +120,10 @@ public class StreamJoiner
                         KafkaRecord latest_s = null;
                         String joined_records = "";
                         for (int idx=accumulator.size()-1; idx>=0; idx--) {
-                            if (accumulator.get(idx).content.getProperty("quantity").startsWith("vaTorque_Z")) {
+                            if (accumulator.get(idx).content.getProperty("quantity").startsWith("vaTorque_C")) {
                                 latest_r = accumulator.get(idx);
                             }
-                            if (accumulator.get(idx).content.getProperty("quantity").startsWith("vaLoad_Z")) {
+                            if (accumulator.get(idx).content.getProperty("quantity").startsWith("actSpeed_C")) {
                                 latest_s = accumulator.get(idx);
                             }
                             // if there is a value of both metrics, join them
@@ -143,9 +143,32 @@ public class StreamJoiner
                                 payload.put("phenomenonTime", latest_s.content.getProperty("phenomenonTime"));
 
                             // calculate the resulting power and transfer it into a non-scientific float
-                            double res = 100000 * (2*Math.PI/60)
+                            double res = Math.abs((2*Math.PI/60)
                                     * Double.parseDouble(latest_r.content.getProperty("result"))
-                                    *  Double.parseDouble(latest_s.content.getProperty("result"));
+                                    *  Double.parseDouble(latest_s.content.getProperty("result")));
+			    
+			    // some cosmetics
+			    if (res > 20000)
+				    res = 20000;
+			    
+			    // calculate power level
+			    int level = (int) (res/20000.1*5);
+			    switch(level) {
+				case 0: payload.put("level", "  0% ...  20%");
+					break;
+				case 1: payload.put("level", " 20% ...  40%");
+					break;
+				case 2: payload.put("level", " 40% ...  60%");
+					break;
+				case 3: payload.put("level", " 60% ...  80%");
+					break;
+				case 4: payload.put("level", " 80% ... 100%");
+					break;
+				default: payload.put("level", "  0% ...  20%");
+					break;
+			    }
+
+                            payload.put("duration", 1);
                             payload.put("result", res);
 
                             // append
@@ -183,9 +206,9 @@ public class StreamJoiner
 
     /* checks whether or not the quantity is of interest for the aggregation or not. */
     private static boolean quantity_contains(String quantity) {
-        if (quantity.startsWith("vaTorque_Z"))
+        if (quantity.startsWith("vaTorque_C"))
             return true;
-        if (quantity.startsWith("vaLoad_Z"))  // TODO replace by speed
+        if (quantity.startsWith("actSpeed_C"))
             return true;
         // return otherwise
         return false;
