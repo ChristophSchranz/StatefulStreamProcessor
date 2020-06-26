@@ -16,7 +16,7 @@
   "gnetId": null,
   "graphTooltip": 2,
   "id": 2,
-  "iteration": 1593146943543,
+  "iteration": 1593153740131,
   "links": [],
   "panels": [
     {
@@ -603,8 +603,8 @@
           "measurement": "machinedata",
           "orderByTime": "ASC",
           "policy": "default",
-          "query": "SELECT sum(\"duration\")  / 6 FROM \"machinedata\" WHERE (\"thing\" =~ /^$thing$/ AND \"level\" = ' 80% ... 100%' AND \"quantity\" = 'powerC11') AND $timeFilter",
-          "rawQuery": false,
+          "query": "SELECT sum(\"duration\")  / 6 FROM \"machinedata\" WHERE (\"thing\" =~ /^$thing$/ AND \"level\" = ' 80% ... 100%' AND \"quantity\" = 'powerC11') AND $timeFilter AND time <= now()",
+          "rawQuery": true,
           "refId": "A",
           "resultFormat": "table",
           "select": [
@@ -875,8 +875,8 @@
           "measurement": "machinedata",
           "orderByTime": "ASC",
           "policy": "default",
-          "query": "SELECT sum(\"duration\")  / 6 FROM \"spindle_load\" WHERE (\"thing\" =~ /^$thing$/ AND \"level\" = '80% ... 100%' AND \"component\" = 'C12') AND $timeFilter\n",
-          "rawQuery": false,
+          "query": "SELECT sum(\"duration\")  / 6 FROM \"machinedata\" WHERE (\"thing\" =~ /^$thing$/ AND \"level\" = ' 80% ... 100%' AND \"quantity\" = 'powerC12') AND $timeFilter AND time <= now()",
+          "rawQuery": true,
           "refId": "A",
           "resultFormat": "table",
           "select": [
@@ -1145,8 +1145,8 @@
           "measurement": "machinedata",
           "orderByTime": "ASC",
           "policy": "default",
-          "query": "SELECT sum(\"duration\")  / 6 FROM \"spindle_load\" WHERE (\"thing\" =~ /^$thing$/ AND \"level\" = '80% ... 100%' AND \"component\" = 'C12') AND $timeFilter\n",
-          "rawQuery": false,
+          "query": "SELECT sum(\"duration\")  / 6 FROM \"machinedata\" WHERE (\"thing\" =~ /^$thing$/ AND \"level\" = ' 80% ... 100%' AND \"quantity\" = 'powerC13') AND $timeFilter AND time <= now()",
+          "rawQuery": true,
           "refId": "A",
           "resultFormat": "table",
           "select": [
@@ -1289,5 +1289,5 @@
   "timezone": "utc",
   "title": "Operation Statistics",
   "uid": "03pGl8iGk",
-  "version": 48
+  "version": 49
 }
