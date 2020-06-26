@@ -50,11 +50,13 @@ if __name__ == "__main__":
                 "measurement": "machinedata",
                 "tags": {
                     "thing": record["thing"],
-                    "quantity": record["quantity"]
+                    "quantity": record["quantity"],
+                    "level": record["level"]
                 },
                 "time": extract_time(int(record["phenomenonTime"])),
                 "fields": {
-                    "result": record["result"]
+                    "result": record["result"],
+                    "duration": record["duration"]
                 }
             }]
             client.write_points(row)
