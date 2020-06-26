@@ -303,14 +303,3 @@ InfluxDB. Therefore, click on `+ -> Dashboard` and then build a
 dashboard from scratch. However, it is also possible to import
 a dashboard that was previously exported.
 
-### Backup restore the Grafana dashboard
-* Download the Grafana backup tool from https://github.com/ysde/grafana-backup-tool
-* Export the connection settings
-
-```bash
-# Do not use a trailing slash on GRAFANA_URL
-export GRAFANA_URL=http://localhost:3000
-export GRAFANA_TOKEN=eyJrIjoiZFpScnBKZFBQMmZRcFE0Q1dncm83MzFKc2YxM29ZN1MiLCJuIjoiZ3JhZmFuYS1iYWNrdXAtdG9vbCIsImlkIjoxfQ==
-```
-* To create an access token have a look at [official documentation](https://grafana.com/docs/grafana/latest/http_api/auth/)
-
