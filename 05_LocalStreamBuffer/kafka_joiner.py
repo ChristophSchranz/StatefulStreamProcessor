@@ -16,7 +16,7 @@ except ModuleNotFoundError:
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPIC_FROM = "machine.data"
 KAFKA_TOPIC_TO = "machine.out"
-VERBOSE = False
+VERBOSE = True
 
 
 class Counter:
@@ -43,19 +43,19 @@ def delivery_report(err, msg):
 
 
 # define customized function for join
-def join_fct(record_r, record_s):
+def join_fct(record_left, record_right):
     # record = Record(thing=record_r.get("thing"), quantity="t",
     #                 result=record_r.get_result() * record_s.get_result(),
     #                 timestamp=(record_r.get_time() + record_s.get_time()) / 2)
-    record = dict({"thing": record_r.get("thing"), "quantity": "t",
-                   "result": (2 * math.pi / 60) * record_r.get_result() * record_s.get_result(),
-                   "timestamp": (record_r.get_time() + record_s.get_time()) / 2})
+    record_dict = dict({"thing": record_left.get("thing"), "quantity": "vaPower_C11",
+                        "result": (2 * math.pi / 60) * record_left.get_result() * record_right.get_result(),
+                        "timestamp": (record_left.get_time() + record_right.get_time()) / 2})
     # produce a Kafka message, the delivery report callback, the key must be thing + quantity
-    kafka_producer.produce(KAFKA_TOPIC_TO, json.dumps(record).encode('utf-8'),
-                           key=f"{record.get('thing')}.{record.get('quantity')}".encode('utf-8'),
+    kafka_producer.produce(KAFKA_TOPIC_TO, json.dumps(record_dict).encode('utf-8'),
+                           key=f"{record_dict.get('thing')}.{record_dict.get('quantity')}".encode('utf-8'),
                            callback=delivery_report)
-    cnt_t.increment()
-    return record_from_dict(record)
+    result_counter.increment()
+    return record_from_dict(record_dict)
 
 
 if __name__ == "__main__":
@@ -71,12 +71,12 @@ if __name__ == "__main__":
     kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
 
     # create an instance of the StreamBuffer class
-    stream_buffer = StreamBuffer(instant_emit=True, left_quantity="r", buffer_results=False,
-                                 join_function=join_fct, verbose=False)
+    stream_buffer = StreamBuffer(instant_emit=True, left="actSpeed_C11", right="vaTorque_C11", buffer_results=False,
+                                 join_function=join_fct, verbose=VERBOSE)
 
-    cnt_r = 0
-    cnt_s = 0
-    cnt_t = Counter()
+    cnt_left = 0
+    cnt_right = 0
+    result_counter = Counter()
     st0 = None
     try:
         while True:
@@ -104,12 +104,12 @@ if __name__ == "__main__":
                     result=record_json.get("result"))
 
                 # ingest the record into the StreamBuffer instance, instant emit
-                if "Torque" in record_json.get("quantity"):
-                    stream_buffer.ingest_r(record)  # instant emit
-                    cnt_r += 1
-                elif "Load" in record_json.get("quantity"):
-                    stream_buffer.ingest_s(record)
-                    cnt_s += 1
+                if record_json.get("quantity") == "actSpeed_C11":
+                    stream_buffer.ingest_left(record)  # instant emit
+                    cnt_left += 1
+                elif record_json.get("quantity") == "vaTorque_C11":
+                    stream_buffer.ingest_right(record)
+                    cnt_right += 1
             except json.decoder.JSONDecodeError as e:
                 print("skipping record as there is a json.decoder.JSONDecodeError.")
         pass
@@ -118,7 +118,10 @@ if __name__ == "__main__":
         print("\nGraceful stopping.")
 
     print(
-        f"\nReceived {cnt_r + cnt_s} records within {time.time() - st0:.3f} s, that are {(cnt_r + cnt_s) / (time.time() - st0):.8g} records/s.")
+        f"\nReceived {cnt_left + cnt_right} records within {time.time() - st0:.3f} s, that are "
+        f"{(cnt_left + cnt_right) / (time.time() - st0):.8g} records/s.")
     print(f"Joined time-series {time.time() - st0:.2f} s long, "
-          f"that are {cnt_t.get() / (time.time() - st0):.8g} records/s.")
-    print(f"length of |event_t| = {cnt_t.get()}, |r| = {cnt_s}, |s| = {cnt_s}.")
+          f"that are {result_counter.get() / (time.time() - st0):.8g} records/s.")
+    print(f"Length of |resulting_events| = {result_counter.get()}, |lefts| = {cnt_left}, |rights| = {cnt_right}.")
+    print(f"Lengths of Buffers: |Br| = {len(stream_buffer.get_left_buffer())},"
+          f" |Bs| = {len(stream_buffer.get_right_buffer())}")

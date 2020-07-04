@@ -12,33 +12,40 @@ import random
 def record_from_dict(record_dict):
     """Creates a Record from a record dictionary
 
-    :param json_dict: dict
+    :param record_dict: dict
         a dictionary storing all the necessary attributes
     """
     quantity = record_dict.pop("quantity", None)
     timestamp = record_dict.pop("timestamp", None)
-    phenomenonTime = record_dict.pop("phenomenonTime", None)
+    phenomenon_time = record_dict.pop("phenomenonTime", None)
     result = record_dict.pop("result", None)
-    record = Record(quantity, timestamp=timestamp, phenomenonTime=phenomenonTime, result=result, kwargs=record_dict)
+    record = Record(quantity, timestamp=timestamp, phenomenon_time=phenomenon_time, result=result, kwargs=record_dict)
     return record
 
 
 class Record:
     """Time-Series Records of Measurements or Events"""
-    def __init__(self, quantity, timestamp=0, phenomenonTime=0, result=None, **kwargs):
+    def __init__(self, quantity, timestamp=None, phenomenon_time=None, result=None, **kwargs):
         """
         :param quantity: string
             specifies the observed property by an unique string identifier
-        :param timestamp: float, optional
-            point in time in the unix format in seconds, only one of timestamp or phenomenonTime has to be set
-        :param phenomenonTime: float, optional
-            point in time in the unix format in seconds, only one of timestamp or phenomenonTime has to be set
+        :param timestamp: int, float, str (iso-8601), optional
+            point in time in the unix format in seconds (preferred, others will be parsed),
+            only one of timestamp or phenomenonTime has to be set
+        :param phenomenon_time:  int, float, str (iso-8601), optional
+            point in time in the unix format in seconds (preferred, others will be parsed),
+            only one of timestamp or phenomenonTime has to be set
         :param result: float, int, string, object, optional
             result value of the measurement of event, default = None
         :param kwargs:
             appends more arguments into class.meta
         """
-        self.phenomenonTime = max(float(timestamp), float(timestamp))
+        if timestamp is not None:
+            self.phenomenonTime = self.extract_time(timestamp)
+        elif phenomenon_time is not None:
+            self.phenomenonTime = self.extract_time(phenomenon_time)
+        else:
+            raise Exception("Error, Either 'timestamp' or 'phenomenon_time' has to be set!")
         self.quantity = str(quantity)
         self.result = result
         self.metadata = kwargs
@@ -51,6 +58,21 @@ class Record:
 
     def get(self, attribute):
         return self.metadata.get(attribute)
+
+    def extract_time(self, timestamp):
+        """
+        Recursively divides a timestamp by 1000 until the time is in seconds and not in ms, µs or ns
+        :param timestamp: int, float, str (iso-8601)
+            timestamp, a metric format is preferred
+        :return: a unix timestamp that is normalized
+        """
+        if not isinstance(timestamp, (int, float)):
+            import dateutil.parser
+            return dateutil.parser.parse(timestamp).strftime("%s")
+        if timestamp >= 1e11:
+            timestamp /= 1000
+            return self.extract_time(timestamp)
+        return timestamp
 
     def get_time(self):
         return self.phenomenonTime
@@ -78,7 +100,7 @@ class StreamBuffer:
     A class for deterministic, low-latency, high-throughput time-series joins of records within the continuous streams
     'r' (left) and 's' (right join partner).
     """
-    def __init__(self, instant_emit=True, delta_time=sys.maxsize, left_quantity="r",
+    def __init__(self, instant_emit=True, delta_time=sys.maxsize, left="r", right="s",
                  buffer_results=True, join_function=None, verbose=False):
         """
 
@@ -86,45 +108,48 @@ class StreamBuffer:
             Emit (join and reduce) on each new record in the buffer
         :param delta_time: float, int, default=sys.maxsize
             Sets the maximum allowed time difference of two join candidates
-        :param left_quantity: str, optional
+        :param left: str, optional
             Sets the stream's quantity name that is joined as left record
+        :param right: str, optional
+            Sets the stream's quantity name that is joined as right record
         :param buffer_results: boolean, default=True
             Whether or not to buffer resulting join records
-        :param join_function: function(record_r, record_s), default=None
+        :param join_function: function(record_left, record_right), default=None
             A function for merging the two join tuples, can be seen as projection in terms of relational algebra.
             The default is None, that inherits all attributes of both records, the function can look as follows:
 
-            def join_fct(record_r, record_s):
-                record = Record(quantity="t",
-                                result=record_r.get_result() * record_s.get_result(),
-                                timestamp=(record_r.get_time() + record_s.get_time()) / 2)
+            def join_fct(record_left, record_right):
+                record = Record(quantity=self.result_quantity,  # default 't'
+                                result=record_left.get_result() * record_right.get_result(),
+                                timestamp=(record_left.get_time() + record_right.get_time()) / 2)
                 # produce resulting record in Kafka or a pipeline
                 return record
         """
         # unload the input and stream the messages based on the order into the buffer queues
-        self.buffer_r = list()
-        self.buffer_s = list()
+        self.buffer_left = list()
+        self.buffer_right = list()
         self.instant_emit = instant_emit
         self.buffer_out = list()
         self.delta_time = delta_time
-        self.left_quantity = left_quantity
+        self.left_quantity = left
+        self.right_quantity = right
         self.buffer_results = buffer_results
         self.join_function = join_function
         self.verbose = verbose
 
-    def get_buffer_r(self):
+    def get_left_buffer(self):
         """Get buffer r
 
         :return: the buffer r
         """
-        return self.buffer_r
+        return self.buffer_left
 
-    def get_buffer_s(self):
+    def get_right_buffer(self):
         """Get buffer s
 
         :return: the buffer s
         """
-        return self.buffer_s
+        return self.buffer_right
 
     def fetch_results(self):
         """Fetch the buffer for the resulting join records. The buffer is emptied when fetched
@@ -135,25 +160,25 @@ class StreamBuffer:
         self.buffer_out = list()
         return res
 
-    def ingest_r(self, record):
+    def ingest_left(self, record):
         """
-        Ingests a record of stream 'r' into the StreamBuffer instance. Emits instantly join partners if not disabled.
+        Ingests a record into the left side of the StreamBuffer instance. Emits instantly join partners if not unset.
         :param record: object
             A Measurement or Event object.
         """
-        self.buffer_r.append({"ts": record.get_time(), "record": record, "was_older": False})
+        self.buffer_left.append({"ts": record.get_time(), "record": record, "was_older": False})
         if self.instant_emit:
-            self.buffer_r, self.buffer_s = self.emit(self.buffer_r, self.buffer_s)
+            self.buffer_left, self.buffer_right = self.emit(self.buffer_left, self.buffer_right)
 
-    def ingest_s(self, record):
+    def ingest_right(self, record):
         """
-        Ingests a record of stream 's' into the StreamBuffer instance. Emits instantly join partners if not disabled.
+        Ingests a record into the right side of the StreamBuffer instance. Emits instantly join partners if not unset.
         :param record: object
             A Measurement or Event object.
         """
-        self.buffer_s.append({"ts": record.get_time(), "record": record, "was_older": False})
+        self.buffer_right.append({"ts": record.get_time(), "record": record, "was_older": False})
         if self.instant_emit:
-            self.buffer_s, self.buffer_r = self.emit(self.buffer_s, self.buffer_r)
+            self.buffer_right, self.buffer_left = self.emit(self.buffer_right, self.buffer_left)
 
 
     # Check for join pairs and commits. W.l.o.G., there is a new record in r.
@@ -254,45 +279,54 @@ class StreamBuffer:
         """Joins two objects 'u' and 'v' if the time constraint holds and produces a resulting record.
         The join_function can be set arbitrary, see __init__()
 
-        :param u: object that holds a record of 'r' or 's'
-        :param v:object that holds a record of 'r' or 's'
+        :param u: object that holds a record regardless if it is a left or right join partner
+        :param v: object that holds a record regardless if it is a left or right join partner
         """
         # check the delta time constraint, don't join if not met
         if abs(u.get('record').get_time() - v.get('record').get_time()) <= self.delta_time:
-            # set the leading quantity to r
+            # decide based on the defined left_quantity, which record is joined as left join partner
             if v.get('record').get_quantity() == self.left_quantity:
-                record_r = v.get('record')
-                record_s = u.get('record')
+                record_left = v.get('record')
+                record_right = u.get('record')
             else:
                 # select them from the normal order, default
-                record_r = u.get('record')
-                record_s = v.get('record')
+                record_left = u.get('record')
+                record_right = v.get('record')
 
+            # apply an arbitrary join function to merge both records, if set
             if self.join_function:
-                # choose an arbitrary join function if set
-                record = self.join_function(record_r=record_r, record_s=record_s)
+                record = self.join_function(record_left=record_left, record_right=record_right)
             else:
-                # standard join tuple with stream-prefix
-                record = {"r.quantity": record_r.get_quantity(), "r.phenomenonTime": record_r.get_time(),
-                          "r.result": record_r.get_result(), "s.quantity": record_s.get_quantity(),
-                          "s.phenomenonTime": record_s.get_time(), "s.result": record_s.get_result()}
-                if record_r.get_metadata() != dict():
-                    record["r.metadata"] = record_r.get_metadata()
-                if record_s.get_metadata() != dict():
-                    record["s.metadata"] = record_s.get_metadata()
+                # apply the default join that is a merge using the records' quantity names as prefix
+                record = {"r.quantity": record_left.get_quantity(), "r.phenomenonTime": record_left.get_time(),
+                          "r.result": record_left.get_result(), "s.quantity": record_right.get_quantity(),
+                          "s.phenomenonTime": record_right.get_time(), "s.result": record_right.get_result()}
+                if record_left.get_metadata() != dict():
+                    record["r.metadata"] = record_left.get_metadata()
+                if record_right.get_metadata() != dict():
+                    record["s.metadata"] = record_right.get_metadata()
 
-            # print join to stdout, append to resulting buffer
+            # print join to stdout and/or append to resulting buffer
             if self.verbose:
                 print(f"New join: {record}.")
             if self.buffer_results:
                 self.buffer_out.append(record)
 
 
-def join_fct(record_r, record_s):
+def join_fct(record_left, record_right):
+    """
+    Blueprint for the join function, takes two records and merges them using the defined routine.
+    :param record_left: Record 
+        Record that is joined as left join partner
+    :param record_right: Record 
+        Record that is joined as right join partner
+    :return: Record
+        the resulting record from the join of both partners
+    """
     record = Record(quantity="t",
-                    result=record_r.get_result() * record_s.get_result(),
-                    timestamp=(record_r.get_time() + record_s.get_time()) / 2)
-    # produce resulting record to Kafka or a pipeline
+                    result=record_left.get_result() * record_right.get_result(),
+                    timestamp=(record_left.get_time() + record_right.get_time()) / 2)
+    # here, the resulting record can be produced to e.g. Apache Kafka or a pipeline
     return record
 
 
@@ -300,7 +334,7 @@ if __name__ == "__main__":
     ts = time.time()
 
     # create an instance of the StreamBuffer class
-    stream_buffer = StreamBuffer(instant_emit=True, delta_time=2, left_quantity="r", buffer_results=True,
+    stream_buffer = StreamBuffer(instant_emit=True, delta_time=2, left="r", buffer_results=True,
                                  join_function=join_fct)
 
     # Test Settings:
@@ -334,7 +368,7 @@ if __name__ == "__main__":
             if len(events_r) == 0:
                 continue
             rec = events_r[0]
-            stream_buffer.ingest_r(rec)  # instant emit
+            stream_buffer.ingest_left(rec)  # instant emit
             n_r += 1
             events_r = events_r[1:]
         elif ingestionOrder[i] == "s":
@@ -342,15 +376,15 @@ if __name__ == "__main__":
             if len(events_s) == 0:
                 continue
             rec = events_s[0]
-            stream_buffer.ingest_s(rec)
+            stream_buffer.ingest_right(rec)
             n_s += 1
             events_s = events_s[1:]
 
     print("\nRecords in buffer r:")
-    for rec in stream_buffer.buffer_r:
+    for rec in stream_buffer.buffer_left:
         print(rec)
     print("Records in buffer s:")
-    for rec in stream_buffer.buffer_s:
+    for rec in stream_buffer.buffer_right:
         print(rec)
     print("Merged records in buffer t:")
     for rec in stream_buffer.fetch_results():
