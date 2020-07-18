@@ -4,6 +4,8 @@
 import sys
 import time
 import random
+
+
 # import importlib
 # LinkedList = importlib.import_module('05_LocalStreamBuffer.doublylinkedlist')
 
@@ -25,6 +27,7 @@ def record_from_dict(record_dict):
 
 class Record:
     """Time-Series Records of Measurements or Events"""
+
     def __init__(self, quantity, timestamp=None, phenomenon_time=None, result=None, **kwargs):
         """
         :param quantity: string
@@ -168,7 +171,8 @@ class StreamBuffer:
         """
         self.buffer_left.append({"ts": record.get_time(), "record": record, "was_older": False})
         if self.instant_emit:
-            self.buffer_left, self.buffer_right = self.emit(self.buffer_left, self.buffer_right)
+            self.buffer_left, self.buffer_right = self.emit(buffer_pivotal=self.buffer_left,
+                                                            buffer_exterior=self.buffer_right)
 
     def ingest_right(self, record):
         """
@@ -178,23 +182,32 @@ class StreamBuffer:
         """
         self.buffer_right.append({"ts": record.get_time(), "record": record, "was_older": False})
         if self.instant_emit:
-            self.buffer_right, self.buffer_left = self.emit(self.buffer_right, self.buffer_left)
+            self.buffer_right, self.buffer_left = self.emit(buffer_pivotal=self.buffer_left,
+                                                            buffer_exterior=self.buffer_right)
 
+    def emit(self, buffer_pivotal, buffer_exterior):
+        """
+        This function tries to find join partners within two buffers and reduces them. If one of the buffers is empty,
+        it is returned immediately. Otherwise, four cases are checked that can lead to a join. TODO name cases
+        :param buffer_pivotal: list of Records
+            The buffer with a pivotal record, i.e., the most recently received one that is checked for partners.
+        :param buffer_exterior: list of Records
+            The other buffer.
+        :return: tuple of two Lists of Records
+            A tuple of the same buffers in same order, but reduced if join partners where found
+        """
+        # Check if one of the Buffers is empty
+        if len(buffer_exterior) == 0 or len(buffer_pivotal) == 0:
+            return buffer_pivotal, buffer_exterior
 
-    # Check for join pairs and commits. W.l.o.G., there is a new record in r.
-    def emit(self, buffer_r, buffer_s):
-        # Return if one of the Buffers is empty
-        # print(f"\n -> emit <{len(buffer_r)}, {len(buffer_s)}>")
-        if len(buffer_s) == 0 or len(buffer_r) == 0:
-            return buffer_r, buffer_s
 
         # load the entries as tuples (record, was_sibling) from the buffer
-        r_1 = buffer_r[-1]  # latest record in buffer r, this one is new.
-        r_2 = None if len(buffer_r) < 2 else buffer_r[-2]  # second to the latest record
+        r_1 = buffer_pivotal[-1]  # latest record in buffer r, this one is new.
+        r_2 = None if len(buffer_pivotal) < 2 else buffer_pivotal[-2]  # second to the latest record
 
         s_idx = 0
-        s_1 = buffer_s[s_idx]  # first (= oldest) record of s
-        s_0 = buffer_s[s_idx + 1] if s_idx + 1 < len(buffer_s) else None  # subsequent record or s_1
+        s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
+        s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(buffer_exterior) else None  # subsequent record or s_1
         # Case 3: join s_1 with r_1, this is the case if r_1 was ingested, but the event order is s_1 < r_2 < r_1 < s_0
         if r_2 is not None:
             while s_0 is not None and s_1.get("record").get_time() < r_2.get("record").get_time():
@@ -204,12 +217,13 @@ class StreamBuffer:
                     if not s_1.get("was_older"):
                         s_1["was_older"] = True
                 s_idx += 1  # load next entry in s
-                s_1 = buffer_s[s_idx] if s_idx < len(buffer_s) else None
-                s_0 = buffer_s[s_idx + 1] if s_idx + 1 < len(buffer_s) else None  # subsequent record or s_1
+                s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
+                s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(
+                    buffer_exterior) else None  # subsequent record or s_1
 
         s_idx = 0
-        s_1 = buffer_s[s_idx]  # first (= oldest) record of s
-        s_0 = buffer_s[s_idx + 1] if s_idx + 1 < len(buffer_s) else None  # subsequent record or s_1
+        s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
+        s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(buffer_exterior) else None  # subsequent record or s_1
         # Case 1: join r_2 with records from s with event times between r_2 and r_1
         # if r_2 is not None:
         while s_1 is not None and s_1.get("record").get_time() < r_1.get("record").get_time():
@@ -218,11 +232,11 @@ class StreamBuffer:
                 if not r_2.get("was_older"):
                     r_2["was_older"] = True
             s_idx += 1  # load next entry in s
-            s_1 = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+            s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
             # s_2 = buffer_s[s_idx+1] if s_idx + 1 < len(buffer_s) else None
 
         s_idx = 0
-        s_1 = buffer_s[s_idx]  # first (= oldest) record of s
+        s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
         # Case 2: join r_1 with with records from s with event times between r_2 and r_1
         while s_1 is not None and s_1.get("record").get_time() <= r_1.get("record").get_time():
             if r_2 is None or r_2.get("record").get_time() < s_1.get("record").get_time():
@@ -230,13 +244,14 @@ class StreamBuffer:
                 if not s_1.get("was_older"):
                     s_1["was_older"] = True
             s_idx += 1  # load next entry in s
-            s_1 = buffer_s[s_idx] if s_idx < len(buffer_s) else None
+            s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
 
         # try to commit & remove deprecated records based on a record criteria (cases, B and E)
-        buffer_r = self.strip_buffers(buffer_r, buffer_s)
-        buffer_s = self.strip_buffers(buffer_s, buffer_r)
+        buffer_pivotal = self.strip_buffers(buffer_pivotal, buffer_exterior)
+        buffer_exterior = self.strip_buffers(buffer_exterior, buffer_pivotal)
 
-        return buffer_r, buffer_s
+        # it is necessary to return the two modified buffers and overwrite the instance variables
+        return buffer_pivotal, buffer_exterior
 
 
     def strip_buffers(self, br, bs):
@@ -334,7 +349,7 @@ if __name__ == "__main__":
     ts = time.time()
 
     # create an instance of the StreamBuffer class
-    stream_buffer = StreamBuffer(instant_emit=True, delta_time=2, left="r", buffer_results=True,
+    stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
                                  join_function=join_fct)
 
     # Test Settings:
@@ -344,7 +359,7 @@ if __name__ == "__main__":
     events_t = list()
 
     # Fill the input_stream with randomized
-    N = 100
+    N = 1000
     random.seed(0)
     eventOrder = ["r", "s"] * int(N / 2)
     eventOrder = (["r"] * 5 + ["s"] * 5) * int(N / 10)
@@ -387,8 +402,9 @@ if __name__ == "__main__":
     for rec in stream_buffer.buffer_right:
         print(rec)
     print("Merged records in buffer t:")
-    for rec in stream_buffer.fetch_results():
+    buffer_t = stream_buffer.fetch_results()
+    for rec in buffer_t:
         print(rec)
 
     print(f"length of |event_t| = {len(events_t)}, |r| = {n_r}, |s| = {n_s}.")
-    print(f"joined time-series in {time.time() - ts} s.")
+    print(f"joined time-series with {len(buffer_t)} resulting joins in {time.time() - ts} s.")
