@@ -187,8 +187,16 @@ class StreamBuffer:
 
     def emit(self, buffer_pivotal, buffer_exterior):
         """
-        This function tries to find join partners within two buffers and reduces them. If one of the buffers is empty,
-        it is returned immediately. Otherwise, four cases are checked that can lead to a join. TODO name cases
+        This function is called if a new (pivotal) Record is received and tries to find join partners within two
+        buffers and reduces them. If one of the buffers is empty, it is returned immediately.
+        Otherwise, four cases are checked that can lead to a join:
+        Case 1: Join latest pivotal Record with Records that occurred before the pivotal's predecessor Record.
+        Case 2: Join the pivotal's predecessor Record with Records that occurred between itself and the pivotal Record.
+        Case 3: Join the pivotal Record with Records that occurred between itself and its pivotal predecessor Record.
+            The split of case 1 and 3 is required, as it ensures the correct timestamps of the joins.
+        Case 4: Join lost Records that were never the older join partner and are about to get trimmed.
+            TODO try to apply inverse Case 2 in order to catch them earlier.
+
         :param buffer_pivotal: list of Records
             The buffer with a pivotal record, i.e., the most recently received one that is checked for partners.
         :param buffer_exterior: list of Records
@@ -200,20 +208,19 @@ class StreamBuffer:
         if len(buffer_exterior) == 0 or len(buffer_pivotal) == 0:
             return buffer_pivotal, buffer_exterior
 
-
+        # Case 1: Join latest pivotal Record with Records that occurred before the pivotal's predecessor Record.
+        # join s_1 with r_1, this is the case if r_1 was ingested, but the event order is s_1 < r_2 < r_1 < s_0
         # load the entries as tuples (record, was_sibling) from the buffer
         r_1 = buffer_pivotal[-1]  # latest record in buffer r, this one is new.
         r_2 = None if len(buffer_pivotal) < 2 else buffer_pivotal[-2]  # second to the latest record
-
         s_idx = 0
         s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
-        s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(buffer_exterior) else None  # subsequent record or s_1
-        # Case 3: join s_1 with r_1, this is the case if r_1 was ingested, but the event order is s_1 < r_2 < r_1 < s_0
+        s_0 = buffer_exterior[1] if len(buffer_exterior) >= 2 else None  # subsequent record or s_1
         if r_2 is not None:
             while s_0 is not None and s_1.get("record").get_time() < r_2.get("record").get_time():
                 if r_1.get("record").get_time() < s_0.get("record").get_time():
                     # print("in part 1: ", end="")
-                    self.join(r_1, s_1)
+                    self.join(r_1, s_1, case="1")
                     if not s_1.get("was_older"):
                         s_1["was_older"] = True
                 s_idx += 1  # load next entry in s
@@ -221,26 +228,26 @@ class StreamBuffer:
                 s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(
                     buffer_exterior) else None  # subsequent record or s_1
 
+        # Case 2: join r_2 with records from s with event times between r_2 and r_1
         s_idx = 0
         s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
         s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(buffer_exterior) else None  # subsequent record or s_1
-        # Case 1: join r_2 with records from s with event times between r_2 and r_1
         # if r_2 is not None:
         while s_1 is not None and s_1.get("record").get_time() < r_1.get("record").get_time():
             if r_2 is not None and r_2.get("record").get_time() < s_1.get("record").get_time():
-                self.join(r_2, s_1)
+                self.join(r_2, s_1, case="2")
                 if not r_2.get("was_older"):
                     r_2["was_older"] = True
             s_idx += 1  # load next entry in s
             s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
             # s_2 = buffer_s[s_idx+1] if s_idx + 1 < len(buffer_s) else None
 
+        # Case 3: join r_1 with with records from s with event times between r_2 and r_1
         s_idx = 0
         s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
-        # Case 2: join r_1 with with records from s with event times between r_2 and r_1
         while s_1 is not None and s_1.get("record").get_time() <= r_1.get("record").get_time():
             if r_2 is None or r_2.get("record").get_time() < s_1.get("record").get_time():
-                self.join(r_1, s_1)
+                self.join(r_1, s_1, case="3")
                 if not s_1.get("was_older"):
                     s_1["was_older"] = True
             s_idx += 1  # load next entry in s
@@ -253,17 +260,30 @@ class StreamBuffer:
         # it is necessary to return the two modified buffers and overwrite the instance variables
         return buffer_pivotal, buffer_exterior
 
+    def strip_buffers(self, buffer_trim, buffer_current):
+        """
+        Trims one buffer if the record is outdated, that is if a more recent record exists or a record's
+        timestamp exceeds a certain threshold compared to this of the exterior buffer.
+        :param buffer_trim: List of Records
+            A buffer that is about to get trimmed, based on the two cases.
+        :param buffer_current: List of Records
+            The comparision buffer that remains unchanged.
+        :return: List of Records
+            The trimmed buffer
+        """
+        # Return if buffer_exterior is empty
+        if len(buffer_current) == 0:
+            return buffer_trim
 
-    def strip_buffers(self, br, bs):
-        if len(bs) == 0:
-            return br
-        s_1 = None if len(bs) < 1 else bs[-1]  # load the latest (newest) entry of s
+        # Case 4: Iteratively join and trim outdated Records if they have never been the older join partner
+        # This helps to join Records that
+        s_1 = None if len(buffer_current) < 1 else buffer_current[-1]  # load the latest (newest) entry of s
         s_idx = 0
-        s_0 = bs[s_idx]
-        r_1 = br[0]
-        r_2 = None if len(br) < 2 else br[1]
-        while r_2 is not None and r_1.get("record").get_time() < r_2.get("record").get_time() <= s_1.get(
-                "record").get_time():
+        s_0 = buffer_current[s_idx]
+        r_1 = buffer_trim[0]
+        r_2 = None if len(buffer_trim) < 2 else buffer_trim[1]
+        while r_2 is not None \
+                and r_1.get("record").get_time() < r_2.get("record").get_time() <= s_1.get("record").get_time():
             # commit r_2 in the data streaming framework
             # remove r_2 from the buffer r
             # some records r_1 are not joined so far as older sibling
@@ -271,29 +291,31 @@ class StreamBuffer:
                 # forward to the first s, with event time r_1 < s_0
                 while s_0 is not None and s_0.get("record").get_time() <= r_1.get("record").get_time():
                     s_idx += 1
-                    s_0 = bs[s_idx]
-                self.join(r_1, s_0)
+                    s_0 = buffer_current[s_idx]
+                self.join(r_1, s_0, case="4")
             # remove r_1 from buffer
-            br = br[1:]
-            r_1 = br[0]
-            r_2 = None if len(br) < 2 else br[1]
+            buffer_trim = buffer_trim[1:]
+            r_1 = buffer_trim[0]
+            r_2 = None if len(buffer_trim) < 2 else buffer_trim[1]
 
-        # remove old records in buffer_r if the delta time is not default
+        # Remove old Records in buffer_r if the delta time is set
         if self.delta_time != sys.maxsize:
-            s_0 = bs[-1]  # the current record in buffer_s
-            r_1 = None if len(br) < 1 else br[0]  # the oldest record in buffer_r, remove candidate
+            s_0 = buffer_current[-1]  # the current record in buffer_s
+            r_1 = None if len(buffer_trim) == 0 else buffer_trim[0]  # the oldest record in buffer_r, remove candidate
             while r_1 is not None and r_1.get("record").get_time() < s_0.get("record").get_time() - self.delta_time:
                 # print(f"  removing outdated record {r_1.get('record')}, leader: {s_0.get('record')}")
                 # remove r_1 from buffer
-                br = br[1:]
-                r_1 = None if len(br) < 1 else br[0]  # the oldest record in buffer_r, remove candidate
+                buffer_trim = buffer_trim[1:]
+                r_1 = None if len(buffer_trim) < 1 else buffer_trim[0]  # the oldest record in buffer_r, remove candidate
 
-        return br
+        return buffer_trim
 
-    def join(self, u, v):
+    def join(self, u, v, case="undefined"):
         """Joins two objects 'u' and 'v' if the time constraint holds and produces a resulting record.
         The join_function can be set arbitrary, see __init__()
 
+        :param case: String
+            Specifies the case that leads to the join
         :param u: object that holds a record regardless if it is a left or right join partner
         :param v: object that holds a record regardless if it is a left or right join partner
         """
@@ -323,7 +345,7 @@ class StreamBuffer:
 
             # print join to stdout and/or append to resulting buffer
             if self.verbose:
-                print(f"New join: {record}.")
+                print(f"New join, case {case}:\t {record}.")
             if self.buffer_results:
                 self.buffer_out.append(record)
 
@@ -350,7 +372,7 @@ if __name__ == "__main__":
 
     # create an instance of the StreamBuffer class
     stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
-                                 join_function=join_fct)
+                                 verbose=True)
 
     # Test Settings:
     # Create Queues to store the input streams
@@ -359,7 +381,7 @@ if __name__ == "__main__":
     events_t = list()
 
     # Fill the input_stream with randomized
-    N = 1000
+    N = 100
     random.seed(0)
     eventOrder = ["r", "s"] * int(N / 2)
     eventOrder = (["r"] * 5 + ["s"] * 5) * int(N / 10)
@@ -395,16 +417,16 @@ if __name__ == "__main__":
             n_s += 1
             events_s = events_s[1:]
 
-    print("\nRecords in buffer r:")
-    for rec in stream_buffer.buffer_left:
-        print(rec)
-    print("Records in buffer s:")
-    for rec in stream_buffer.buffer_right:
-        print(rec)
-    print("Merged records in buffer t:")
+    # print("\nRecords in buffer r:")
+    # for rec in stream_buffer.buffer_left:
+    #     print(rec)
+    # print("Records in buffer s:")
+    # for rec in stream_buffer.buffer_right:
+    #     print(rec)
+    # print("Merged records in buffer t:")
     buffer_t = stream_buffer.fetch_results()
-    for rec in buffer_t:
-        print(rec)
+    # for rec in buffer_t:
+    #     print(rec)
 
     print(f"length of |event_t| = {len(events_t)}, |r| = {n_r}, |s| = {n_s}.")
     print(f"joined time-series with {len(buffer_t)} resulting joins in {time.time() - ts} s.")

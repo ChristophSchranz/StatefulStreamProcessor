@@ -119,13 +119,13 @@ Now, we can create our topic with the specified configs. Note that the MQTT reco
 /kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic machine.data --replication-factor 1 --partitions 5 --config cleanup.policy=compact --config retention.ms=172800000
 /kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic machine.out --replication-factor 1 --partitions 3 --config cleanup.policy=compact --config retention.ms=172800000
 # check if the topic was created with the correct configs:
-/kafka/bin/kafka-topics.sh --bootstrap-server :2181 --describe --topic machine.data
+/kafka/bin/kafka-topics.sh --bootstrap-server :9092 --describe --topic machine.data
 ```
 
 Here are some other useful command for
 ```bash
 /kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-/kafka/bin/kafka-topics.sh --bootstrap-server :2181 --delete --topic machine.data
+/kafka/bin/kafka-topics.sh --bootstrap-server :9092 --delete --topic machine.data
 ```
 
 In order to test the installation, open two terminal windows and start
