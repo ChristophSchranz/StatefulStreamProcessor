@@ -282,6 +282,20 @@ class LinkedList(object):
             # Otherwise raise an error to tell the user that delete has failed
             raise ValueError('Item not found: {}'.format(item))
 
+    def get_tail(self):
+        """
+        Returns the last and therefore most recent Node.
+        :return:
+        """
+        return self.tail
+
+    def get_first(self):
+        """
+        Returns the first and therefore oldest Node in the LinkedList.
+        :return:
+        """
+        return self.head
+
 
 def test_linked_list():
     ll = LinkedList()

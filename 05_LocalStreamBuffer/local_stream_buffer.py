@@ -251,53 +251,21 @@ class StreamBuffer:
                 s_j.data["was_older"] = True
             s_j = s_j.next
 
-        # return buffer_pivotal, buffer_exterior
-        # # Case 1: Join latest pivotal Record with Records that occurred before the pivotal's predecessor Record.
-        # # join s_1 with r_1, this is the case if r_1 was ingested, but the event order is s_1 < r_2 < r_1 < s_0
-        # # load the entries as tuples (record, was_sibling) from the buffer
-        # r_1 = buffer_pivotal[-1]  # latest record in buffer r, this one is new.
-        # r_2 = None if len(buffer_pivotal) < 2 else buffer_pivotal[-2]  # second to the latest record
-        # s_idx = 0
-        # s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
-        # s_0 = buffer_exterior[1] if len(buffer_exterior) >= 2 else None  # subsequent record or s_1
-        # if r_2 is not None:
-        #     while s_0 is not None and s_1.get("record").get_time() < r_2.get("record").get_time():
-        #         if r_1.get("record").get_time() < s_0.get("record").get_time():
-        #             # print("in part 1: ", end="")
-        #             self.join(r_1, s_1, case="1")
-        #             if not s_1.get("was_older"):
-        #                 s_1["was_older"] = True
-        #         s_idx += 1  # load next entry in s
-        #         s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
-        #         s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(
-        #             buffer_exterior) else None  # subsequent record or s_1
-        #
-        # # Case 2: join r_2 with records from s with event times between r_2 and r_1
-        # s_idx = 0
-        # s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
-        # s_0 = buffer_exterior[s_idx + 1] if s_idx + 1 < len(buffer_exterior) else None  # subsequent record or s_1
-        # # if r_2 is not None:
-        # while s_1 is not None and s_1.get("record").get_time() < r_1.get("record").get_time():
-        #     if r_2 is not None and r_2.get("record").get_time() < s_1.get("record").get_time():
-        #         self.join(r_2, s_1, case="2")
-        #         if not r_2.get("was_older"):
-        #             r_2["was_older"] = True
-        #     s_idx += 1  # load next entry in s
-        #     s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
-        #     # s_2 = buffer_s[s_idx+1] if s_idx + 1 < len(buffer_s) else None
-        #
-        # # Case 3: join r_1 with with records from s with event times between r_2 and r_1
-        # s_idx = 0
-        # s_1 = buffer_exterior[s_idx]  # first (= oldest) record of s
-        # while s_1 is not None and s_1.get("record").get_time() <= r_1.get("record").get_time():
-        #     if r_2 is None or r_2.get("record").get_time() < s_1.get("record").get_time():
-        #         self.join(r_1, s_1, case="3")
-        #         if not s_1.get("was_older"):
-        #             s_1["was_older"] = True
-        #     s_idx += 1  # load next entry in s
-        #     s_1 = buffer_exterior[s_idx] if s_idx < len(buffer_exterior) else None
+        # Join-case JS2: the external buffer has the leading Record and the pivotal Record finds one partner
+        # joins r_t0--s_j, if s_j is the Record in buffer_exterior with the subsequent timestamp:
+        # formally: s_j = min_t({s_k in s with r_t0.time <= s_k.time})
+        r_t0 = buffer_pivotal.tail  # the latest and therefore most recent Record
+        s_j = buffer_exterior.head
+        # steps s_j forward until r_t0.time < s_j.time
+        while s_j is not None and s_j.data.get("record").get_time() < r_t0.data.get("record").get_time():
+            s_j = s_j.next
+        # r_t0.time <= s_k.time so join them and continue
+        if s_j is not None:
+            self.join(r_t0.data, s_j.data, case="JS2")
+            if not r_t0.data.get("was_older"):
+                r_t0.data["was_older"] = True
 
-        # try to commit & remove deprecated records based on a record criteria (cases, B and E)
+        # Strip the buffers: try to commit & remove deprecated records based on a record criteria (cases, B and E)
         buffer_pivotal = self.strip_buffers(buffer_pivotal, buffer_exterior)
         buffer_exterior = self.strip_buffers(buffer_exterior, buffer_pivotal)
 
@@ -347,7 +315,8 @@ class StreamBuffer:
         r_i0 = buffer_trim.head
         r_i1 = r_i0.next
         while r_i1 is not None and r_i1.data.get("record").get_time() <= s_0.data.get("record").get_time():
-            print(f"  removing superseeded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
+            if self.verbose:
+                print(f"  removing superseeded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
             buffer_trim.delete(r_i0.data)
             r_i0 = r_i1
             r_i1 = r_i0.next
@@ -358,7 +327,8 @@ class StreamBuffer:
             s_0 = buffer_current.tail  # the latest and therefore most recent Record
             r = buffer_trim.head  # the first and therefore oldest Record
             while r is not None and r.data.get("record").get_time() < s_0.data.get("record").get_time() - self.delta_time:
-                print(f"  removing outdated record {r.data.get('record')}, leader: {s_0.data.get('record')}")
+                if self.verbose:
+                    print(f"  removing outdated record {r.data.get('record')}, leader: {s_0.data.get('record')}")
                 # remove r_1 from buffer
                 buffer_trim.delete(r.data)
                 r = buffer_trim.head
@@ -422,54 +392,30 @@ def join_fct(record_left, record_right):
 
 
 if __name__ == "__main__":
-    ts = time.time()
-
     # create an instance of the StreamBuffer class
     stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
                                  verbose=True)
 
+    # Fill the input_stream with randomized
+    random.seed(0)
+    start_time = 1600000000
+
     # Test Settings:
     # Create Queues to store the input streams
     events_r = list()
-    events_s = list()
-    events_t = list()
+    for i in range(10):
+        events_r.append(Record(timestamp=i + start_time, quantity="r", result=random.random()))
 
-    # Fill the input_stream with randomized
-    N = 100
-    random.seed(0)
-    eventOrder = ["r", "s"] * int(N / 2)
-    eventOrder = (["r"] * 5 + ["s"] * 5) * int(N / 10)
-    start_time = 1600000000
+    ts = time.time()
+    # first ingest all Records into R, then all into s
+    for event in events_r:
+        stream_buffer.ingest_left(event)  # instant emit
 
-    for i in range(len(eventOrder)):
-        if eventOrder[i] == "r":
-            events_r.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
-        elif eventOrder[i] == "s":
-            events_s.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
-
-    # ingestionOrder = ["r", "s"] * 5            # works
-    ingestionOrder = (["r"] * 5 + ["s"] * 5) * N  # works
-    n_r = 0
-    n_s = 0
-    for i in range(N):
-        # decide based on the ingestion order which stream record is forwarded
-        # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
-        if ingestionOrder[i] == "r":
-            # receive the first record from the event stream
-            if len(events_r) == 0:
-                continue
-            rec = events_r[0]
-            stream_buffer.ingest_left(rec)  # instant emit
-            n_r += 1
-            events_r = events_r[1:]
-        elif ingestionOrder[i] == "s":
-            # receive the first record from the event stream
-            if len(events_s) == 0:
-                continue
-            rec = events_s[0]
-            stream_buffer.ingest_right(rec)
-            n_s += 1
-            events_s = events_s[1:]
+    print("Ingest Records into s.")
+    stream_buffer.ingest_right(Record(timestamp=start_time - 0.5, quantity="s", result=random.random()))
+    stream_buffer.ingest_right(Record(timestamp=start_time + 0.5, quantity="s", result=random.random()))
+    stream_buffer.ingest_right(Record(timestamp=start_time + 5.5, quantity="s", result=random.random()))
+    stream_buffer.ingest_right(Record(timestamp=start_time + 9.5, quantity="s", result=random.random()))
 
     # print("\nRecords in buffer r:")
     # for rec in stream_buffer.buffer_left:
@@ -478,9 +424,15 @@ if __name__ == "__main__":
     # for rec in stream_buffer.buffer_right:
     #     print(rec)
     # print("Merged records in buffer t:")
-    buffer_t = stream_buffer.fetch_results()
+    events_t = stream_buffer.fetch_results()
     # for rec in buffer_t:
     #     print(rec)
 
-    print(f"length of |event_t| = {len(events_t)}, |r| = {n_r}, |s| = {n_s}.")
-    print(f"joined time-series with {len(buffer_t)} resulting joins in {time.time() - ts} s.")
+    print(f"Join time-series with |r| = {len(events_r)}, |s| = {4}.")
+    print(f"joined {events_t.length()} tuples in {time.time() - ts} s.")
+    if time.time() - ts > 1e-3:
+        print(f"that are {int(events_t.length()/(time.time() - ts))} joins per second.")
+
+    d = {'r.quantity': 'r', 'r.phenomenonTime': 1600000006, 'r.result': 0.7837985890347726,
+         's.quantity': 's', 's.phenomenonTime': 1600000005.5, 's.result': 0.28183784439970383}
+    print(d in events_t.items())
