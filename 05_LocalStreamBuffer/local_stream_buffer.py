@@ -164,7 +164,7 @@ class StreamBuffer:
 
         :return: a list of resulting join records
         """
-        res = self.buffer_out
+        res = self.buffer_out.items()
         self.buffer_out = LinkedList()
         return res
 
@@ -210,7 +210,8 @@ class StreamBuffer:
             A tuple of the same buffers in same order, but reduced if join partners where found
         """
         if self.verbose:
-            print(f"New ingest with timestamp: {buffer_pivotal.tail.data.get('record').get_time()}")
+            print(f"New ingest into '{buffer_pivotal.tail.data.get('record').get_quantity()}' with timestamp: "
+                  f"{buffer_pivotal.tail.data.get('record').get_time()}")
         # Check if one of the Buffers is empty
         if buffer_exterior.size == 0 or buffer_pivotal.size == 0:
             return buffer_pivotal, buffer_exterior
@@ -316,11 +317,10 @@ class StreamBuffer:
         r_i1 = r_i0.next
         while r_i1 is not None and r_i1.data.get("record").get_time() <= s_0.data.get("record").get_time():
             if self.verbose:
-                print(f"  removing superseeded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
+                print(f"  removing superseded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
             buffer_trim.delete(r_i0.data)
             r_i0 = r_i1
             r_i1 = r_i0.next
-
 
         # Remove old Records in buffer_trim if the delta time is set
         if self.delta_time != sys.maxsize:
@@ -329,6 +329,8 @@ class StreamBuffer:
             while r is not None and r.data.get("record").get_time() < s_0.data.get("record").get_time() - self.delta_time:
                 if self.verbose:
                     print(f"  removing outdated record {r.data.get('record')}, leader: {s_0.data.get('record')}")
+                # commit the Record in the Streaming Platform
+                # TODO add customizable commit function
                 # remove r_1 from buffer
                 buffer_trim.delete(r.data)
                 r = buffer_trim.head
@@ -392,47 +394,48 @@ def join_fct(record_left, record_right):
 
 
 if __name__ == "__main__":
+    ts = time.time()
+
     # create an instance of the StreamBuffer class
     stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
                                  verbose=True)
 
-    # Fill the input_stream with randomized
-    random.seed(0)
-    start_time = 1600000000
-
     # Test Settings:
     # Create Queues to store the input streams
     events_r = list()
-    for i in range(10):
-        events_r.append(Record(timestamp=i + start_time, quantity="r", result=random.random()))
+    events_s = list()
 
-    ts = time.time()
-    # first ingest all Records into R, then all into s
-    for event in events_r:
-        stream_buffer.ingest_left(event)  # instant emit
+    # Fill the input_stream with randomized
+    n_r = n_s = 10
+    random.seed(0)
+    start_time = 1600000000
+    phenomenon_time = start_time
+    for i in range(n_r):
+        phenomenon_time += random.random()
+        events_r.append(Record(timestamp=phenomenon_time, quantity="r", result=random.random()))
+    phenomenon_time = start_time
+    for i in range(n_s):
+        phenomenon_time += random.random()
+        events_s.append(Record(timestamp=phenomenon_time, quantity="s", result=random.random()))
 
-    print("Ingest Records into s.")
-    stream_buffer.ingest_right(Record(timestamp=start_time - 0.5, quantity="s", result=random.random()))
-    stream_buffer.ingest_right(Record(timestamp=start_time + 0.5, quantity="s", result=random.random()))
-    stream_buffer.ingest_right(Record(timestamp=start_time + 5.5, quantity="s", result=random.random()))
-    stream_buffer.ingest_right(Record(timestamp=start_time + 9.5, quantity="s", result=random.random()))
+    ingestion_order = ["r"] * n_r + ["s"] * n_s
+    random.shuffle(ingestion_order)
 
-    # print("\nRecords in buffer r:")
-    # for rec in stream_buffer.buffer_left:
-    #     print(rec)
-    # print("Records in buffer s:")
-    # for rec in stream_buffer.buffer_right:
-    #     print(rec)
-    # print("Merged records in buffer t:")
+    n_r = n_s = 0
+    for quantity in ingestion_order:
+        # decide based on the ingestion order which stream record is forwarded
+        # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
+        if quantity == "r":
+            # receive the first record from the event stream
+            stream_buffer.ingest_left(events_r[n_r])  # instant emit
+            n_r += 1
+        elif quantity == "s":
+            # receive the first record from the event stream
+            stream_buffer.ingest_right(events_s[n_s])
+            n_s += 1
+
     events_t = stream_buffer.fetch_results()
-    # for rec in buffer_t:
-    #     print(rec)
 
-    print(f"Join time-series with |r| = {len(events_r)}, |s| = {4}.")
-    print(f"joined {events_t.length()} tuples in {time.time() - ts} s.")
-    if time.time() - ts > 1e-3:
-        print(f"that are {int(events_t.length()/(time.time() - ts))} joins per second.")
-
-    d = {'r.quantity': 'r', 'r.phenomenonTime': 1600000006, 'r.result': 0.7837985890347726,
-         's.quantity': 's', 's.phenomenonTime': 1600000005.5, 's.result': 0.28183784439970383}
-    print(d in events_t.items())
+    print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
+    assert events_t.length() == 20

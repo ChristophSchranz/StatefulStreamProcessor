@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
+# Tester for the join-algorithm in local_stream_buffer.
 
-# script to test the algorithm for the local stream buffering approach.
 import sys
 import time
 import random
@@ -29,39 +29,38 @@ def join_fct(record_left, record_right):
 
 
 def test_one_one():
+    # TODO clean up test functions
     ts = time.time()
 
     # create an instance of the StreamBuffer class
     stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
                                  verbose=True)
 
-    # Test Settings:
-    # Create Queues to store the input streams
+    # create Queues to store the input streams
     events_r = list()
     events_s = list()
 
-    # Fill the input_stream with randomized
+    # Fill the input_stream with randomized Records
     N = 100
     random.seed(0)
-    eventOrder = ["r", "s"] * int(N / 2)
+    event_order = ["r", "s"] * int(N / 2)
     start_time = 1600000000
+    for i in range(len(event_order)):
+        if event_order[i] == "r":
+            events_r.append(Record(timestamp=i + start_time, quantity=event_order[i], result=random.random()))
+        elif event_order[i] == "s":
+            events_s.append(Record(timestamp=i + start_time, quantity=event_order[i], result=random.random()))
 
-    for i in range(len(eventOrder)):
-        if eventOrder[i] == "r":
-            events_r.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
-        elif eventOrder[i] == "s":
-            events_s.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
-
-    ingestionOrder = ["r", "s"] * int(N/2)            # works
+    ingestion_order = ["r", "s"] * int(N/2)            # works
     n_r = n_s = 0
     for i in range(N):
         # decide based on the ingestion order which stream record is forwarded
         # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
-        if ingestionOrder[i] == "r":
+        if ingestion_order[i] == "r":
             # receive the first record from the event stream
             stream_buffer.ingest_left(events_r[n_r])  # instant emit
             n_r += 1
-        elif ingestionOrder[i] == "s":
+        elif ingestion_order[i] == "s":
             # receive the first record from the event stream
             stream_buffer.ingest_right(events_s[n_s])
             n_s += 1
@@ -78,8 +77,8 @@ def test_one_one():
     #     print(rec)
 
     print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
-    print(f"joined {events_t.length()} tuples in {time.time() - ts} s.")
-    assert events_t.length() == 99
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
+    assert len(events_t) == 99
 
 
 def test_five_five():
@@ -97,28 +96,25 @@ def test_five_five():
     # Fill the input_stream with randomized
     N = 20
     random.seed(0)
-    eventOrder = ["r", "s"] * int(N / 2)
-    eventOrder = (["r"] * 5 + ["s"] * 5) * int(N / 10)
+    event_order = (["r"] * 5 + ["s"] * 5) * int(N / 10)
     start_time = 1600000000
 
-    for i in range(len(eventOrder)):
-        if eventOrder[i] == "r":
-            events_r.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
-        elif eventOrder[i] == "s":
-            events_s.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
+    for i in range(len(event_order)):
+        if event_order[i] == "r":
+            events_r.append(Record(timestamp=i + start_time, quantity=event_order[i], result=random.random()))
+        elif event_order[i] == "s":
+            events_s.append(Record(timestamp=i + start_time, quantity=event_order[i], result=random.random()))
 
-    # ingestionOrder = ["r", "s"] * 5            # works
-    ingestionOrder = (["r"] * 5 + ["s"] * 5) * N  # works
-    n_r = 0
-    n_s = 0
+    ingestion_order = (["r"] * 5 + ["s"] * 5) * N
+    n_r = n_s = 0
     for i in range(N):
         # decide based on the ingestion order which stream record is forwarded
         # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
-        if ingestionOrder[i] == "r":
+        if ingestion_order[i] == "r":
             # receive the first record from the event stream
             stream_buffer.ingest_left(events_r[n_r])  # instant emit
             n_r += 1
-        elif ingestionOrder[i] == "s":
+        elif ingestion_order[i] == "s":
             # receive the first record from the event stream
             stream_buffer.ingest_right(events_s[n_s])
             n_s += 1
@@ -126,8 +122,8 @@ def test_five_five():
     events_t = stream_buffer.fetch_results()
 
     print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
-    print(f"joined {events_t.length()} tuples in {time.time() - ts} s.")
-    assert events_t.length() == 23
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
+    assert len(events_t) == 23
 
 
 def test_five_five_many():
@@ -144,27 +140,27 @@ def test_five_five_many():
     # Fill the input_stream with randomized
     N = 100_000
     random.seed(0)
-    eventOrder = (["r"] * 5 + ["s"] * 5) * int(N / 10)
+    event_order = (["r"] * 5 + ["s"] * 5) * int(N / 10)
     start_time = 1600000000
 
-    for i in range(len(eventOrder)):
-        if eventOrder[i] == "r":
-            events_r.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
-        elif eventOrder[i] == "s":
-            events_s.append(Record(timestamp=i + start_time, quantity=eventOrder[i], result=random.random()))
+    for i in range(len(event_order)):
+        if event_order[i] == "r":
+            events_r.append(Record(timestamp=i + start_time, quantity=event_order[i], result=random.random()))
+        elif event_order[i] == "s":
+            events_s.append(Record(timestamp=i + start_time, quantity=event_order[i], result=random.random()))
 
-    ingestionOrder = (["r"] * 5 + ["s"] * 5) * int(N/10)  # works
+    ingestion_order = (["r"] * 5 + ["s"] * 5) * int(N/10)
     n_r = 0
     n_s = 0
     ts = time.time()
     for i in range(N):
         # decide based on the ingestion order which stream record is forwarded
         # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
-        if ingestionOrder[i] == "r":
+        if ingestion_order[i] == "r":
             # receive the first record from the event stream
             stream_buffer.ingest_left(events_r[n_r])  # instant emit
             n_r += 1
-        elif ingestionOrder[i] == "s":
+        elif ingestion_order[i] == "s":
             # receive the first record from the event stream
             stream_buffer.ingest_right(events_s[n_s])
             n_s += 1
@@ -172,9 +168,9 @@ def test_five_five_many():
     events_t = stream_buffer.fetch_results()
 
     print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
-    print(f"joined {events_t.length()} tuples in {time.time() - ts} s.")
-    print(f"that are {int(events_t.length()/(time.time() - ts))} joins per second.")
-    assert events_t.length() == 179987
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
+    print(f"that are {int(len(events_t)/(time.time() - ts))} joins per second.")
+    assert len(events_t) == 179987
     assert time.time() - ts < 4
 
 
@@ -207,16 +203,114 @@ def test_unordered():
     events_t = stream_buffer.fetch_results()
 
     print(f"Join time-series with |r| = {len(events_r)}, |s| = {4}.")
-    print(f"joined {events_t.length()} tuples in {time.time() - ts} s.")
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
     if time.time() - ts > 1e-3:
-        print(f"that are {int(events_t.length()/(time.time() - ts))} joins per second.")
-    assert events_t.length() == 20
+        print(f"that are {int(len(events_t)/(time.time() - ts))} joins per second.")
+    assert len(events_t) == 20
     d = {'r.quantity': 'r', 'r.phenomenonTime': 1600000006, 'r.result': 0.7837985890347726,
          's.quantity': 's', 's.phenomenonTime': 1600000005.5, 's.result': 0.28183784439970383}
-    assert d in events_t.items()
+    assert d in events_t
 
 
-def rest_randomized():
+def test_randomized():
+    ts = time.time()
+
+    # create an instance of the StreamBuffer class
+    stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
+                                 verbose=True)
+
+    # Test Settings:
+    # Create Queues to store the input streams
+    events_r = list()
+    events_s = list()
+
+    # Fill the input_stream with randomized
+    n_r = n_s = 10
+    random.seed(0)
+    start_time = 1600000000
+    phenomenon_time = start_time
+    for i in range(n_r):
+        phenomenon_time += random.random()
+        events_r.append(Record(timestamp=phenomenon_time, quantity="r", result=random.random()))
+    phenomenon_time = start_time
+    for i in range(n_s):
+        phenomenon_time += random.random()
+        events_s.append(Record(timestamp=phenomenon_time, quantity="s", result=random.random()))
+
+    ingestion_order = ["r"] * n_r + ["s"] * n_s
+    random.shuffle(ingestion_order)
+
+    n_r = n_s = 0
+    for quantity in ingestion_order:
+        # decide based on the ingestion order which stream record is forwarded
+        # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
+        if quantity == "r":
+            # receive the first record from the event stream
+            stream_buffer.ingest_left(events_r[n_r])  # instant emit
+            n_r += 1
+        elif quantity == "s":
+            # receive the first record from the event stream
+            stream_buffer.ingest_right(events_s[n_s])
+            n_s += 1
+
+    events_t = stream_buffer.fetch_results()
+
+    print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
+    assert len(events_t) == 20
+
+
+def test_randomized_many():
+    ts = time.time()
+
+    # create an instance of the StreamBuffer class
+    stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
+                                 verbose=False)
+
+    # Test Settings:
+    # Create Queues to store the input streams
+    events_r = list()
+    events_s = list()
+
+    # Fill the input_stream with randomized
+    n_r = n_s = 10_000
+    random.seed(0)
+    start_time = 1600000000
+    phenomenon_time = start_time
+    for i in range(n_r):
+        phenomenon_time += random.random()
+        events_r.append(Record(timestamp=phenomenon_time, quantity="r", result=random.random()))
+    phenomenon_time = start_time
+    for i in range(n_s):
+        phenomenon_time += random.random()
+        events_s.append(Record(timestamp=phenomenon_time, quantity="s", result=random.random()))
+
+    ingestion_order = ["r"] * n_r + ["s"] * n_s
+    random.shuffle(ingestion_order)
+
+    n_r = n_s = 0
+    for quantity in ingestion_order:
+        # decide based on the ingestion order which stream record is forwarded
+        # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
+        if quantity == "r":
+            # receive the first record from the event stream
+            stream_buffer.ingest_left(events_r[n_r])  # instant emit
+            n_r += 1
+        elif quantity == "s":
+            # receive the first record from the event stream
+            stream_buffer.ingest_right(events_s[n_s])
+            n_s += 1
+
+    events_t = stream_buffer.fetch_results()
+
+    print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
+    print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
+    print(f"that are {int(len(events_t)/(time.time() - ts))} joins per second.")
+    assert len(events_t) == 23041
+    assert time.time() - ts < 1  # we got around 0.4 s
+
+
+def test_unbalanced_latency_many():
     pass
 
 
@@ -225,11 +319,15 @@ if __name__ == "__main__":
     test_one_one()
     test_five_five()
 
-    # test unordered ingestion
-    print("\n #############################")
-    print("Testing a lot of cases")
-    test_five_five_many()
-
-    print("\n Testing unordered ingestion:")
+    print("\n #############################\n")
+    print("Testing unordered ingestion:")
     test_unordered()
-    rest_randomized()
+    test_randomized()  # TODO short shuffled sequences
+
+    # test unordered ingestion
+    print("\n #############################\n")
+    print("Performance tests")
+    test_five_five_many()
+    # test_randomized_many()  # TODO long shuffled sequences for performance
+    # test_unbalanced_latency_many()  # TODO one stream has a much higher latency than the other
+
