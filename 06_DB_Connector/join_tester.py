@@ -24,7 +24,7 @@ if __name__ == "__main__":
     kafka_consumer = Consumer({
         'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS,
         'group.id': 'db-connector',
-        'auto.offset.reset': 'latest'
+        'auto.offset.reset': 'earliest'
     })
     kafka_consumer.subscribe([KAFKA_TOPIC])
     joined_records = list()

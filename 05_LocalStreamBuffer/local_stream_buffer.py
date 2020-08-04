@@ -107,7 +107,7 @@ class StreamBuffer:
     'r' (left) and 's' (right join partner).
     """
     def __init__(self, instant_emit=True, delta_time=sys.maxsize, max_latency=sys.maxsize, left="r", right="s",
-                 buffer_results=True, join_function=None, verbose=False):
+                 buffer_results=True, join_function=None, commit_function=None, verbose=False):
         """
 
         :param instant_emit: boolean, default=True
@@ -133,11 +133,16 @@ class StreamBuffer:
                                 timestamp=(record_left.get_time() + record_right.get_time()) / 2)
                 # produce resulting record in Kafka or a pipeline
                 return record
+        :param commit_function: function(record_to_commit), default=None
+            A function that enables a streaming-platform specific commit, e.g. for Apache Kafka.
+            This enables an at-least-once delivery and replay capability in case of a failure.
+            The default is None, that inherits all attributes a record, the function can look as follows:
+
+            def commit_fct(record_to_commit):
+                # Commits message’s offset+1
+                kafka_consumer.commit(record_to_commit.get("msg"))
         """
         # unload the input and stream the messages based on the order into the buffer queues
-        self.max_latency = max_latency
-        if self.max_latency != sys.maxsize:
-            raise Exception("Maximum latency is not implemented yet.")
         self.buffer_left = LinkedList()
         self.buffer_right = LinkedList()
         self.instant_emit = instant_emit
@@ -149,6 +154,10 @@ class StreamBuffer:
         self.right_quantity = right
         self.buffer_results = buffer_results
         self.join_function = join_function
+        self.commit_function = commit_function
+        self.max_latency = max_latency
+        if self.max_latency != sys.maxsize:
+            raise Exception("Maximum latency is not implemented yet.")
         self.verbose = verbose
 
     def get_left_buffer(self):
@@ -322,7 +331,8 @@ class StreamBuffer:
             if self.verbose:
                 print(f"  removing superseded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
             buffer_trim.delete(r_i0.data)
-            # TODO add customizable commit function
+            if self.commit_function:
+                self.commit_function(record_to_commit=r_i0)
             r_i0 = r_i1
             r_i1 = r_i0.next
 
@@ -330,7 +340,7 @@ class StreamBuffer:
 
     def join(self, u, v, case="undefined"):
         """Joins two objects 'u' and 'v' if the time constraint holds and produces a resulting record.
-        The join_function can be set arbitrary, see __init__()
+        The join_function and commit_function can be set arbitrary, see __init__()
 
         :param case: String
             Specifies the case that leads to the join

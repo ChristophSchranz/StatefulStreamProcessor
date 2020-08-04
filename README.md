@@ -245,7 +245,10 @@ are in `test_with_kafka.py`.
 
 Using the LocalStreamBuffer approach, one can join up to **100000 records per second**
 from a list, and up to **15000 records per seconds from Kafka** on localhost.
-That is three times more than the 5000 in Flink Java. In addition to the 
+That is three times more than the 5000 in Flink Java.
+As the Confluent Kafka Python client is limited to around 20000 published records per second 
+and it also has to consume from Kafka, the time-series join itself makes up only a minor 
+amount of time.  In addition to the 
 increased performance, the LocalStreamBuffer method ensures that all join
 candidates are **joined deterministically** and have **minimal latency**.
 

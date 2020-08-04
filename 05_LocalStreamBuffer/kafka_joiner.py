@@ -10,6 +10,8 @@ The performance was tested to be around 15000 time-series joins per second with 
 import json
 import math
 import time
+import uuid
+
 from confluent_kafka import Producer, Consumer
 
 try:
@@ -22,8 +24,7 @@ except (ModuleNotFoundError, ImportError):
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPIC_FROM = "machine.data"
 KAFKA_TOPIC_TO = "machine.out"
-GROUP_ID = 'test_StreamBuffer_10'
-MAX_JOIN_CNT = None  # None or a integer
+MAX_JOIN_CNT = 1000  # None or a integer
 VERBOSE = True
 
 
@@ -67,7 +68,7 @@ if __name__ == "__main__":
     # Create a kafka producer and consumer instance and subscribe to the topics
     kafka_consumer = Consumer({
         'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS,
-        'group.id': GROUP_ID,  # should be unique in order to retrieve multiple messages
+        'group.id': str(uuid.uuid1()),  # should be unique in order to retrieve multiple messages
         'auto.offset.reset': 'earliest'  # should be earliest in order retrieve the Records from beginning
     })
     kafka_consumer.subscribe([KAFKA_TOPIC_FROM])
@@ -123,8 +124,10 @@ if __name__ == "__main__":
                 print("reached the maximal join count, graceful stopping.")
                 break
     except KeyboardInterrupt:
-        kafka_consumer.close()
         print("\nGraceful stopping.")
+    finally:
+        # Leave group and commit offsets
+        kafka_consumer.close()
 
     print(f"\nLength of |resulting_events| = {cnt_out.get()}, |lefts| = {cnt_left}, |rights| = {cnt_right}.")
     print(f"Joined time-series {ts_stop - st0:.2f} s long, "
