@@ -106,7 +106,7 @@ class StreamBuffer:
     A class for deterministic, low-latency, high-throughput time-series joins of records within the continuous streams
     'r' (left) and 's' (right join partner).
     """
-    def __init__(self, instant_emit=True, delta_time=sys.maxsize, left="r", right="s",
+    def __init__(self, instant_emit=True, delta_time=sys.maxsize, max_latency=sys.maxsize, left="r", right="s",
                  buffer_results=True, join_function=None, verbose=False):
         """
 
@@ -114,6 +114,9 @@ class StreamBuffer:
             Emit (join and reduce) on each new record in the buffer
         :param delta_time: float, int, default=sys.maxsize
             Sets the maximum allowed time difference of two join candidates
+        :param max_latency: float, int, default=sys.maxsize
+            Join rule waits up to max_latency for new Records before joining them anyway. Breaks the determinism
+            guarantee.
         :param left: str, optional
             Sets the stream's quantity name that is joined as left record
         :param right: str, optional
@@ -132,6 +135,9 @@ class StreamBuffer:
                 return record
         """
         # unload the input and stream the messages based on the order into the buffer queues
+        self.max_latency = max_latency
+        if self.max_latency != sys.maxsize:
+            raise Exception("Maximum latency is not implemented yet.")
         self.buffer_left = LinkedList()
         self.buffer_right = LinkedList()
         self.instant_emit = instant_emit
@@ -195,12 +201,9 @@ class StreamBuffer:
         This function is called if a new (pivotal) Record is received and tries to find join partners within two
         buffers and reduces them. If one of the buffers is empty, it is returned immediately.
         Otherwise, four cases are checked that can lead to a join:
-        Case 1: Join latest pivotal Record with Records that occurred before the pivotal's predecessor Record.
-        Case 2: Join the pivotal's predecessor Record with Records that occurred between itself and the pivotal Record.
-        Case 3: Join the pivotal Record with Records that occurred between itself and its pivotal predecessor Record.
-            The split of case 1 and 3 is required, as it ensures the correct timestamps of the joins.
-        Case 4: Join lost Records that were never the older join partner and are about to get trimmed.
-            TODO try to apply inverse Case 2 in order to catch them earlier.
+        # Join-case JR1: the pivotal buffer has the leading Record and the pivotal's predecessor finds partners
+        # Join-case JR2: the pivotal buffer has the leading Record and the pivotal Record finds partners
+        # Join-case JS2: the external buffer has the leading Record and the pivotal Record finds one partner
 
         :param buffer_pivotal: list of Records
             The buffer with a pivotal record, i.e., the most recently received one that is checked for partners.
@@ -288,7 +291,7 @@ class StreamBuffer:
         if buffer_current.size == 0 or buffer_trim.size == 0:
             return buffer_trim
 
-        # # Case 4: Iteratively join and trim outdated Records if they have never been the older join partner
+        # # Case JT1: Iteratively join and trim outdated Records if they have never been the older join partner
         # # This helps to join Records that
         # s_1 = None if len(buffer_current) < 1 else buffer_current[-1]  # load the latest (newest) entry of s
         # s_idx = 0
@@ -319,21 +322,10 @@ class StreamBuffer:
             if self.verbose:
                 print(f"  removing superseded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
             buffer_trim.delete(r_i0.data)
+            # TODO add customizable commit function
             r_i0 = r_i1
             r_i1 = r_i0.next
 
-        # Remove old Records in buffer_trim if the delta time is set
-        if self.delta_time != sys.maxsize:
-            s_0 = buffer_current.tail  # the latest and therefore most recent Record
-            r = buffer_trim.head  # the first and therefore oldest Record
-            while r is not None and r.data.get("record").get_time() < s_0.data.get("record").get_time() - self.delta_time:
-                if self.verbose:
-                    print(f"  removing outdated record {r.data.get('record')}, leader: {s_0.data.get('record')}")
-                # commit the Record in the Streaming Platform
-                # TODO add customizable commit function
-                # remove r_1 from buffer
-                buffer_trim.delete(r.data)
-                r = buffer_trim.head
         return buffer_trim
 
     def join(self, u, v, case="undefined"):
@@ -393,15 +385,13 @@ def join_fct(record_left, record_right):
     return record
 
 
+# Test script for the classes.
 if __name__ == "__main__":
-    ts = time.time()
-
     # create an instance of the StreamBuffer class
-    stream_buffer = StreamBuffer(instant_emit=True, delta_time=200, left="r", buffer_results=True,
+    stream_buffer = StreamBuffer(instant_emit=True, delta_time=100, left="r", buffer_results=True,
                                  verbose=True)
 
-    # Test Settings:
-    # Create Queues to store the input streams
+    # create Lists to store the input streams
     events_r = list()
     events_s = list()
 
@@ -422,6 +412,7 @@ if __name__ == "__main__":
     random.shuffle(ingestion_order)
 
     n_r = n_s = 0
+    ts = time.time()
     for quantity in ingestion_order:
         # decide based on the ingestion order which stream record is forwarded
         # store as dict of KafkaRecords and a flag whether it was already joined as older sibling
@@ -438,4 +429,3 @@ if __name__ == "__main__":
 
     print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
     print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
-    assert events_t.length() == 20

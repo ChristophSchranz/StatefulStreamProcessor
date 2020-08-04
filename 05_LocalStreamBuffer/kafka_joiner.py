@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 
-# script to test the algorithm for the local stream buffering approach.
+"""A script to test the algorithm for the local stream buffering approach with Apache Kafka as Stream Delivery Platform
+
+It consumes from KAFKA_TOPIC_FROM the quantities 'vaTorque_C11' and 'vaSpeed_C11', joins the time-series via the
+ LocalStreamBuffer method and produces the resulting 'vaPower_C11' to KAFKA_TOPIC_TO.
+
+The performance was tested to be around 15000 time-series joins per second with usage of Apache Kafka.
+"""
 import json
 import math
 import time
@@ -8,7 +14,7 @@ from confluent_kafka import Producer, Consumer
 
 try:
     from .local_stream_buffer import Record, StreamBuffer, record_from_dict
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
     # noinspection PyUnresolvedReferences
     from local_stream_buffer import Record, StreamBuffer, record_from_dict
 
@@ -16,6 +22,8 @@ except ModuleNotFoundError:
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPIC_FROM = "machine.data"
 KAFKA_TOPIC_TO = "machine.out"
+GROUP_ID = 'test_StreamBuffer_10'
+MAX_JOIN_CNT = None  # None or a integer
 VERBOSE = True
 
 
@@ -44,9 +52,6 @@ def delivery_report(err, msg):
 
 # define customized function for join
 def join_fct(record_left, record_right):
-    # record = Record(thing=record_r.get("thing"), quantity="t",
-    #                 result=record_r.get_result() * record_s.get_result(),
-    #                 timestamp=(record_r.get_time() + record_s.get_time()) / 2)
     record_dict = dict({"thing": record_left.get("thing"), "quantity": "vaPower_C11",
                         "result": (2 * math.pi / 60) * record_left.get_result() * record_right.get_result(),
                         "timestamp": (record_left.get_time() + record_right.get_time()) / 2})
@@ -54,7 +59,7 @@ def join_fct(record_left, record_right):
     kafka_producer.produce(KAFKA_TOPIC_TO, json.dumps(record_dict).encode('utf-8'),
                            key=f"{record_dict.get('thing')}.{record_dict.get('quantity')}".encode('utf-8'),
                            callback=delivery_report)
-    result_counter.increment()
+    cnt_out.increment()
     return record_from_dict(record_dict)
 
 
@@ -62,8 +67,8 @@ if __name__ == "__main__":
     # Create a kafka producer and consumer instance and subscribe to the topics
     kafka_consumer = Consumer({
         'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS,
-        'group.id': 'db-connector',
-        'auto.offset.reset': 'latest'
+        'group.id': GROUP_ID,  # should be unique in order to retrieve multiple messages
+        'auto.offset.reset': 'earliest'  # should be earliest in order retrieve the Records from beginning
     })
     kafka_consumer.subscribe([KAFKA_TOPIC_FROM])
 
@@ -71,12 +76,13 @@ if __name__ == "__main__":
     kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
 
     # create an instance of the StreamBuffer class
-    stream_buffer = StreamBuffer(instant_emit=True, left="actSpeed_C11", right="vaTorque_C11", buffer_results=False,
-                                 join_function=join_fct, verbose=VERBOSE)
+    stream_buffer = StreamBuffer(instant_emit=True, left="actSpeed_C11", right="vaTorque_C11", buffer_results=True,
+                                 verbose=VERBOSE, join_function=join_fct)
+    print("Created a StreamBuffer instance. starting the time-series join now.")
 
     cnt_left = 0
     cnt_right = 0
-    result_counter = Counter()
+    cnt_out = Counter()
     st0 = None
     try:
         while True:
@@ -88,40 +94,38 @@ if __name__ == "__main__":
             if msg.error():
                 print("Consumer error: {}".format(msg.error()))
                 continue
-            try:
-                record_json = json.loads(msg.value().decode('utf-8'))
-                if VERBOSE:
+
+            record_json = json.loads(msg.value().decode('utf-8'))
+            if VERBOSE:
+                if record_json.get("quantity").endswith("_C11"):
                     print(f"Received new record: {record_json}")
-                if st0 is None:
-                    print("Start count clock")
-                    st0 = time.time()
+            if st0 is None:
+                print("Start the count clock")
+                st0 = time.time()
 
-                # create a Record from the json
-                record = Record(
-                    thing=record_json.get("thing"),
-                    quantity=record_json.get("quantity"),
-                    timestamp=record_json.get("phenomenonTime"),
-                    result=record_json.get("result"))
+            # create a Record from the json
+            record = Record(
+                thing=record_json.get("thing"),
+                quantity=record_json.get("quantity"),
+                timestamp=record_json.get("phenomenonTime"),
+                result=record_json.get("result"))
 
-                # ingest the record into the StreamBuffer instance, instant emit
-                if record_json.get("quantity") == "actSpeed_C11":
-                    stream_buffer.ingest_left(record)  # instant emit
-                    cnt_left += 1
-                elif record_json.get("quantity") == "vaTorque_C11":
-                    stream_buffer.ingest_right(record)
-                    cnt_right += 1
-            except json.decoder.JSONDecodeError as e:
-                print("skipping record as there is a json.decoder.JSONDecodeError.")
-        pass
+            # ingest the record into the StreamBuffer instance, instant emit
+            if record_json.get("quantity") == "actSpeed_C11":
+                stream_buffer.ingest_left(record)  # instant emit
+                cnt_left += 1
+            elif record_json.get("quantity") == "vaTorque_C11":
+                stream_buffer.ingest_right(record)
+                cnt_right += 1
+
+            if MAX_JOIN_CNT is not None and cnt_out.get() >= MAX_JOIN_CNT:
+                ts_stop = time.time()
+                print("reached the maximal join count, graceful stopping.")
+                break
     except KeyboardInterrupt:
         kafka_consumer.close()
         print("\nGraceful stopping.")
 
-    print(
-        f"\nReceived {cnt_left + cnt_right} records within {time.time() - st0:.3f} s, that are "
-        f"{(cnt_left + cnt_right) / (time.time() - st0):.8g} records/s.")
-    print(f"Joined time-series {time.time() - st0:.2f} s long, "
-          f"that are {result_counter.get() / (time.time() - st0):.8g} records/s.")
-    print(f"Length of |resulting_events| = {result_counter.get()}, |lefts| = {cnt_left}, |rights| = {cnt_right}.")
-    print(f"Lengths of Buffers: |Br| = {len(stream_buffer.get_left_buffer())},"
-          f" |Bs| = {len(stream_buffer.get_right_buffer())}")
+    print(f"\nLength of |resulting_events| = {cnt_out.get()}, |lefts| = {cnt_left}, |rights| = {cnt_right}.")
+    print(f"Joined time-series {ts_stop - st0:.2f} s long, "
+          f"that are {cnt_out.get() / (ts_stop - st0):.6g} joins per second.")
