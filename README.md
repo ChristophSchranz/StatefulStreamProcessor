@@ -267,6 +267,12 @@ The joiner script that is the actual pendent of the solution in Apache Flink is
 with a exactly-once processing and with minimal latency as it is not window-based.
 Therefore, the proposed algorithm is better for this use-case compared to the standard solution in Apache Flink.
 
+Further steps to even improve the *LocalStreamBuffer* algorithm:
+- [ ] use batched production with linger times.
+- [ ] implement time triggered joins in cases the partner's succeeder
+ has a too high latency.
+ - [ ] handle more timeout policies, e.g., join even older or discard.
+
 
 ## 6. DB Connector
 
