@@ -8,6 +8,8 @@ exactly-once time-series joins of streaming data at a high sample rate
 of around 15000 joins per second and low latency.
 This solution is tested against a the time-series join within
 Apache Flink, that is window-based.
+To learn more about the proposed algorithm go to the section 
+[Time-Series Join with the Local Stream Buffer](#time-series-join-with-the-local-stream-buffer).
 
 
 ![flink-architecture](docs/flink_architecture.png)
@@ -260,7 +262,12 @@ increased performance, the LocalStreamBuffer method ensures that all join
 candidates are **joined deterministically**, **exactly-once** and with **minimal latency**.
 
 
-The joiner script that
+The joiner script that is the actual pendent of the solution in Apache Flink is 
+`ts_join_with_kafka_eos.py`. This solution joins the time-series with 15000 joins per second (vs. 5000 in Flink), 
+with a exactly-once processing and with minimal latency as it is not window-based.
+Therefore, the proposed algorithm is better for this use-case compared to the standard solution in Apache Flink.
+
+
 ## 6. DB Connector
 
 The Database Connector consumes Messages from Kafka, both from 
