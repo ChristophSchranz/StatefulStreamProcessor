@@ -2,7 +2,12 @@
 
 This project is an end-to-end example to demonstrate 
 stateful stream processing on very high throughput of 
-machine data.
+machine data. The core component is the *LocalStreamBuffer*
+located in `05_LocalStreamBuffer`, that enables deterministic and
+exactly-once time-series joins of streaming data at a high sample rate
+of around 15000 joins per second and low latency.
+This solution is tested against a the time-series join within
+Apache Flink, that is window-based.
 
 
 ![flink-architecture](docs/flink_architecture.png)
