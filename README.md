@@ -207,7 +207,7 @@ pip install apache-flink
 More has not been tested yet. 
 
 
-## Time-Series Join with the Local Stream Buffer
+### Time-Series Join with the Local Stream Buffer
 
 The LocalStreamBuffer is an algorithm for the deterministic join of two streams of time-series. It is optimised for
 high throughput and ensures both minimal latency and to join each candidate. The pre-assumption is that the records 
@@ -218,14 +218,15 @@ High-Throughput Data Streams".
 
 **In a nutshell, a time-series join matches each record within one time-series with its previous and subsequent 
 complement from the other time-series.**
-This property should pertain **independent of the record's ingestion time** (the record are only ingested in order within 
-each stream, but not across them). In the following figure, for two different ingestion orders, 
-the three join cases are depicted:
+This property should pertain **independent of the record's ingestion time** 
+(the records should be ingested in order within a stream but not across them, as it is
+ guaranteed by e.g. Apache kafka).
+In the following figure, for two different ingestion orders, the three join cases are depicted:
 
 ![localstreambuffer_join-cases](docs/localstreambuffer_joins.png)
 
-The implementation including a short test script is in `05_LocalStreamBuffer/local_stream_buffer.py`.
-To run it, start:
+A demo-implementation including a short test script is available
+ in `05_LocalStreamBuffer/local_stream_buffer.py`. To run it, start:
 
 ```bash
 cd 05_LocalStreamBuffer
@@ -240,18 +241,21 @@ python local_stream_buffer.py
 #> joined 20 tuples in 0.001998424530029297 s.
 ``` 
 
-Multiple tests are implemented in `tester.py`, moreover, the tests with Kafka
-are in `test_with_kafka.py`. 
+Various functionality tests are implemented in `tester.py`, and tests including Kafka
+are in `test_kafka_eos_joiner.py` (which needs the `events.json` file). 
 
 Using the LocalStreamBuffer approach, one can join up to **100000 records per second**
-from a list, and up to **15000 records per seconds from Kafka** on localhost.
+from a list and around **15000 records per seconds from Kafka** on localhost 
+with **exactly-once processing**.
 That is three times more than the 5000 in Flink Java.
 As the Confluent Kafka Python client is limited to around 20000 published records per second 
 and it also has to consume from Kafka, the time-series join itself makes up only a minor 
 amount of time.  In addition to the 
 increased performance, the LocalStreamBuffer method ensures that all join
-candidates are **joined deterministically** and have **minimal latency**.
+candidates are **joined deterministically**, **exactly-once** and with **minimal latency**.
 
+
+The joiner script that
 ## 6. DB Connector
 
 The Database Connector consumes Messages from Kafka, both from 
