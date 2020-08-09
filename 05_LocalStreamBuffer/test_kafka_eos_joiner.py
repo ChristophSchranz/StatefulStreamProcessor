@@ -8,6 +8,7 @@ LocalStreamBuffer method and produces the resulting 'vaPower_C11' to KAFKA_TOPIC
 A join rate of around 15000 time-series joins per second was reached with a exactly-once semantic for
 the consume-join-produce using Apache Kafka.
 """
+import sys
 import time
 import json
 import math
@@ -34,6 +35,8 @@ RES_QUANTITY = "vaPower_C11"
 MAX_JOIN_CNT = 50  # maximum of 20000 rows
 VERBOSE = True
 
+if sys.platform.startswith("win"):
+    pytest.skip("skipping unix-only tests", allow_module_level=True)
 
 # Create a kafka producer and consumer instance and subscribe to the topics
 print("Create Kafka instances.")
@@ -46,7 +49,8 @@ kafka_consumer = Consumer({
     'group.id': f"kafka-eof_{str(uuid.uuid4())}",
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
-    'enable.auto.offset.store': False
+    'enable.auto.offset.store': False,
+    'enable.partition.eof': False
 })
 
 kafka_consumer.subscribe([KAFKA_TOPIC_IN_0, KAFKA_TOPIC_IN_1])
@@ -55,8 +59,6 @@ kafka_consumer.assign([TopicPartition(KAFKA_TOPIC_IN_0), TopicPartition(KAFKA_TO
 # create a Kafka producer
 kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS,
                            "transactional.id": 'eos-transactions1.py'})
-# Initialize producer transaction.
-kafka_producer.init_transactions()
 
 
 class Counter:
@@ -127,14 +129,20 @@ def test_topic_creation():
     """ This method recreates the test topics. """
     print("Recreate test topics.")
     topic_config = dict({"retention.ms": 3600000})  # store for one hour only
-    k_admin_client.create_topics([
-        kafka_admin.NewTopic(KAFKA_TOPIC_IN_0, num_partitions=1, replication_factor=1, config=topic_config),
-        kafka_admin.NewTopic(KAFKA_TOPIC_IN_1, num_partitions=1, replication_factor=1, config=topic_config),
-        kafka_admin.NewTopic(KAFKA_TOPIC_OUT, num_partitions=1, replication_factor=1, config=topic_config)])
-    k_admin_client.poll(1.5)
+    res_dict = k_admin_client.create_topics(
+        [kafka_admin.NewTopic(topic, num_partitions=1, replication_factor=1, config=topic_config)
+         for topic in [KAFKA_TOPIC_IN_0, KAFKA_TOPIC_IN_1, KAFKA_TOPIC_OUT]])
+
+    # Wait for each operation to finish.
+    for topic, f in res_dict.items():
+        try:
+            f.result()  # The result itself is None
+            print(f"Topic '{topic}' created")
+        except Exception as e:
+            print(f"Topic '{topic}' couldn't be created: {e}")
+    k_admin_client.poll(0.1)  # small timeout for synchronizing
 
     topics = k_admin_client.list_topics(timeout=3.0).topics
-    print(list(topics.keys()))
     assert KAFKA_TOPIC_IN_0 in topics
     assert KAFKA_TOPIC_IN_1 in topics
     assert KAFKA_TOPIC_OUT in topics
@@ -183,8 +191,11 @@ def test_commit_transaction(round_nr=1):
 
     print(f"\n################################ commit, transaction {round_nr} ######################################\n")
 
-    # Start producer transaction.
-    kafka_producer.begin_transaction()
+    if round_nr == 1:
+        # Initialize producer transaction.
+        kafka_producer.init_transactions()
+        # Start producer transaction for round 1 only
+        kafka_producer.begin_transaction()
 
     # commit_fct is empty and join_fct is with transactions
     stream_buffer = StreamBuffer(instant_emit=True, left="actSpeed_C11", right="vaTorque_C11",
@@ -195,6 +206,7 @@ def test_commit_transaction(round_nr=1):
     st0 = time.time()
     while True:
         msg = kafka_consumer.poll(0.1)
+        # kafka_consumer.consume(num_messages=10, timeout=0.1) is faster, returns a list
 
         # if there is no msg within a second, continue
         if msg is None:
@@ -275,11 +287,30 @@ def test_topic_deletion():
     print("\n##################### test topic deletion ##########################")
 
     # delete test topics
-    k_admin_client.delete_topics([KAFKA_TOPIC_IN_0, KAFKA_TOPIC_IN_1, KAFKA_TOPIC_OUT])
-    k_admin_client.poll(1.0)
+    res_dict = k_admin_client.delete_topics([KAFKA_TOPIC_IN_0, KAFKA_TOPIC_IN_1, KAFKA_TOPIC_OUT])
+
+    # Wait for each operation to finish.
+    for topic, f in res_dict.items():
+        try:
+            f.result()  # The result itself is None
+            print(f"Topic '{topic}' was deleted.")
+        except Exception as e:
+            print(f"Failed to delete topic '{topic}': {e}")
+    k_admin_client.poll(3.0)  # small timeout for synchronizing
+
+    topics = k_admin_client.list_topics(timeout=3.0).topics
+    assert KAFKA_TOPIC_IN_0 not in topics
+    assert KAFKA_TOPIC_IN_1 not in topics
+    assert KAFKA_TOPIC_OUT not in topics
 
 
+# to profile via cProfile, run it normally with a python interpreter
 if __name__ == "__main__":
+    import cProfile
+
+    pr = cProfile.Profile()
+    pr.enable()
+
     test_topic_creation()
     test_write_sample_data()
     test_commit_transaction()
@@ -287,3 +318,7 @@ if __name__ == "__main__":
 
     kafka_consumer.close()
     test_topic_deletion()
+
+    pr.disable()
+    # after your program ends
+    pr.print_stats(sort="tottime")

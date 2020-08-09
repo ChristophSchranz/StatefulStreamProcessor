@@ -125,7 +125,6 @@ def test_five_five():
 
 
 def test_five_five_many():
-    ts = time.time()
 
     # create an instance of the StreamBuffer class
     stream_buffer = StreamBuffer(instant_emit=True, delta_time=sys.maxsize, left="r", buffer_results=True,
@@ -165,12 +164,13 @@ def test_five_five_many():
             n_s += 1
 
     events_t = stream_buffer.fetch_results()
+    stop_time = time.time()
 
     print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
     print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
     print(f"that are {int(len(events_t)/(time.time() - ts))} joins per second.")
     assert len(events_t) == 179987
-    assert time.time() - ts < 4
+    assert stop_time - ts < 6
 
 
 def test_unordered():
@@ -299,12 +299,13 @@ def test_randomized_many():
             n_s += 1
 
     events_t = stream_buffer.fetch_results()
+    stop_time = time.time()
 
     print(f"Join time-series with |r| = {n_r}, |s| = {n_s}.")
     print(f"joined {len(events_t)} tuples in {time.time() - ts} s.")
     print(f"that are {int(len(events_t)/(time.time() - ts))} joins per second.")
     assert len(events_t) == 23041
-    assert time.time() - ts < 1  # we got around 0.4 s
+    assert stop_time - ts < 1  # we got around 0.4 s
 
 
 def test_delayed_many():
@@ -447,7 +448,13 @@ def test_timeout_randomized():
     assert len(events_t) == 16
 
 
+# to profile via cProfile, run it normally with a python interpreter
 if __name__ == "__main__":
+    import cProfile
+
+    pr = cProfile.Profile()
+    pr.enable()
+
     # test ordered ingestion
     test_one_one()
     test_five_five()
@@ -468,3 +475,9 @@ if __name__ == "__main__":
     print("Timeout tests")
     test_timeout_five_five()
     test_timeout_randomized()
+
+    pr.disable()
+    # after your program ends
+    pr.print_stats(sort="tottime")
+    # Back in outer section of code
+    # pr.dump_stats('tester_profile.pstat')
