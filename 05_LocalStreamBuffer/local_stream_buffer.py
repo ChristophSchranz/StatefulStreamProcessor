@@ -74,7 +74,7 @@ class Record:
         """
         if not isinstance(timestamp, (int, float)):
             import dateutil.parser
-            return dateutil.parser.parse(timestamp).strftime("%s")
+            return float(dateutil.parser.parse(timestamp).strftime("%s"))
         if timestamp >= 1e11:
             timestamp /= 1000
             return self.extract_time(timestamp)
@@ -374,7 +374,7 @@ class StreamBuffer:
             # print join to stdout and/or append to resulting buffer
             if self.verbose:
                 print(f" join case {case}:\t {record}.")
-            if self.buffer_results:
+            if self.buffer_results and record is not None:
                 self.buffer_out.append(record)
 
 
