@@ -4,6 +4,8 @@
 import sys
 import time
 import random
+import pytz
+from datetime import datetime
 
 try:
     from .doublylinkedlist import Node, LinkedList
@@ -73,8 +75,7 @@ class Record:
         :return: a unix timestamp that is normalized
         """
         if not isinstance(timestamp, (int, float)):
-            import dateutil.parser
-            return float(dateutil.parser.parse(timestamp).strftime("%s"))
+            return datetime.fromisoformat(timestamp).replace(tzinfo=pytz.UTC).timestamp()
         if timestamp >= 1e11:
             timestamp /= 1000
             return self.extract_time(timestamp)
@@ -106,17 +107,17 @@ class StreamBuffer:
     A class for deterministic, low-latency, high-throughput time-series joins of records within the continuous streams
     'r' (left) and 's' (right join partner).
     """
-    def __init__(self, instant_emit=True, delta_time=sys.maxsize, max_latency=sys.maxsize, left="r", right="s",
+    def __init__(self, instant_emit=True, delta_time=None, max_latency=None, left="r", right="s",
                  buffer_results=True, join_function=None, commit_function=None, verbose=False):
         """
 
         :param instant_emit: boolean, default=True
             Emit (join and reduce) on each new record in the buffer
-        :param delta_time: float, int, default=sys.maxsize
-            Sets the maximum allowed time difference of two join candidates
-        :param max_latency: float, int, default=sys.maxsize
+        :param delta_time: float, int, None default=None
+            Sets the maximum allowed time difference of two join candidates, None doesn't check time constraints
+        :param max_latency: float, int, None default=None
             Join rule waits up to max_latency for new Records before joining them anyway. Breaks the determinism
-            guarantee.
+            guarantee if the latency is larger than the not-None value.
         :param left: str, optional
             Sets the stream's quantity name that is joined as left record
         :param right: str, optional
@@ -143,20 +144,25 @@ class StreamBuffer:
                 kafka_consumer.commit(record_to_commit.get("msg"))
         """
         # unload the input and stream the messages based on the order into the buffer queues
-        self.buffer_left = LinkedList()
-        self.buffer_right = LinkedList()
+        self.buffer_left = LinkedList(side="left")
+        self.buffer_right = LinkedList(side="right")
+        self.buffer_out = LinkedList()
+        self.counter_left = 0
+        self.counter_right = 0
+        self.counter_joins = 0
+        self.last_removed_left = None  # save the latest Record removed for transaction commits
+        self.last_removed_right = None
         self.instant_emit = instant_emit
         if not instant_emit:
             raise NotImplementedError("implement trigger_emit method.")
-        self.buffer_out = LinkedList()
         self.delta_time = delta_time
-        self.left_quantity = left
-        self.right_quantity = right
+        self.left_quantity = left  # is not used anywhere
+        self.right_quantity = right  # is not used anywhere
         self.buffer_results = buffer_results
         self.join_function = join_function
         self.commit_function = commit_function
         self.max_latency = max_latency
-        if self.max_latency != sys.maxsize:
+        if self.max_latency:
             raise Exception("Maximum latency is not implemented yet.")
         self.verbose = verbose
 
@@ -183,6 +189,27 @@ class StreamBuffer:
         self.buffer_out = LinkedList()
         return res
 
+    def get_left_counter(self):
+        """Get the number of ingested Records in the left buffer
+
+        :return: the number of left ingested Records
+        """
+        return self.counter_left
+
+    def get_right_counter(self):
+        """Get the number of ingested Records in the right buffer
+
+        :return: the number of right ingested Records
+        """
+        return self.counter_right
+
+    def get_join_counter(self):
+        """Get the number of joined Records of the LocalStreamBuffer
+
+        :return: the number of joins
+        """
+        return self.counter_joins
+
     def ingest_left(self, record):
         """
         Ingests a record into the left side of the StreamBuffer instance. Emits instantly join partners if not unset.
@@ -190,6 +217,7 @@ class StreamBuffer:
             A Measurement or Event object.
         """
         self.buffer_left.append({"ts": record.get_time(), "record": record, "was_older": False})
+        self.counter_left += 1
         if self.instant_emit:
             self.buffer_left, self.buffer_right = self.emit(buffer_pivotal=self.buffer_left,
                                                             buffer_exterior=self.buffer_right)
@@ -201,6 +229,7 @@ class StreamBuffer:
             A Measurement or Event object.
         """
         self.buffer_right.append({"ts": record.get_time(), "record": record, "was_older": False})
+        self.counter_right += 1
         if self.instant_emit:
             self.buffer_right, self.buffer_left = self.emit(buffer_pivotal=self.buffer_right,
                                                             buffer_exterior=self.buffer_left)
@@ -243,7 +272,7 @@ class StreamBuffer:
                 s_j = s_j.next
                 # joins as long as s_j.time <= r_t0.time
                 while s_j is not None and s_j.data.get("record").get_time() <= r_t0.data.get("record").get_time():
-                    self.join(r_t1.data, s_j.data, case="JR1")
+                    self.join(r_t1, s_j, case="JR1")
                     if not r_t1.data.get("was_older"):
                         r_t1.data["was_older"] = True
                     s_j = s_j.next
@@ -259,7 +288,7 @@ class StreamBuffer:
                 s_j = s_j.next
         # join r_t0--s_j until the s_j is None or r_t0.time < s_j.time which does not occur in this case
         while s_j is not None and s_j.data.get("record").get_time() <= r_t0.data.get("record").get_time():
-            self.join(r_t0.data, s_j.data, case="JR2")
+            self.join(r_t0, s_j, case="JR2")
             if not s_j.data.get("was_older"):
                 s_j.data["was_older"] = True
             s_j = s_j.next
@@ -274,7 +303,7 @@ class StreamBuffer:
             s_j = s_j.next
         # r_t0.time <= s_k.time so join them and continue
         if s_j is not None:
-            self.join(r_t0.data, s_j.data, case="JS2")
+            self.join(r_t0, s_j, case="JS2")
             if not r_t0.data.get("was_older"):
                 r_t0.data["was_older"] = True
 
@@ -300,29 +329,6 @@ class StreamBuffer:
         if buffer_current.size == 0 or buffer_trim.size == 0:
             return buffer_trim
 
-        # # Case JT1: Iteratively join and trim outdated Records if they have never been the older join partner
-        # # This helps to join Records that
-        # s_1 = None if len(buffer_current) < 1 else buffer_current[-1]  # load the latest (newest) entry of s
-        # s_idx = 0
-        # s_0 = buffer_current[s_idx]
-        # r_1 = buffer_trim[0]
-        # r_2 = None if len(buffer_trim) < 2 else buffer_trim[1]
-        # while r_2 is not None \
-        #         and r_1.get("record").get_time() < r_2.get("record").get_time() <= s_1.get("record").get_time():
-        #     # commit r_2 in the data streaming framework
-        #     # remove r_2 from the buffer r
-        #     # some records r_1 are not joined so far as older sibling
-        #     if not r_1.get("was_older"):
-        #         # forward to the first s, with event time r_1 < s_0
-        #         while s_0 is not None and s_0.get("record").get_time() <= r_1.get("record").get_time():
-        #             s_idx += 1
-        #             s_0 = buffer_current[s_idx]
-        #         self.join(r_1, s_0, case="4")
-        #     # remove r_1 from buffer
-        #     buffer_trim = buffer_trim[1:]
-        #     r_1 = buffer_trim[0]
-        #     r_2 = None if len(buffer_trim) < 2 else buffer_trim[1]
-
         # Remove Records from buffer_trim that can't find any join partners any more
         s_0 = buffer_current.tail  # the latest and therefore most recent Record
         r_i0 = buffer_trim.head
@@ -331,6 +337,11 @@ class StreamBuffer:
             if self.verbose:
                 print(f"  removing superseded record {r_i0.data.get('record')}, leader: {s_0.data.get('record')}")
             buffer_trim.delete(r_i0.data)
+            # store latest removed in order to make periodical transactions for all partitions, e.g., 1 second
+            if r_i0.side == "left":
+                self.last_removed_left = r_i0
+            elif r_i0.side == "right":
+                self.last_removed_right = r_i0
             if self.commit_function:
                 self.commit_function(record_to_commit=r_i0)
             r_i0 = r_i1
@@ -338,44 +349,51 @@ class StreamBuffer:
 
         return buffer_trim
 
-    def join(self, u, v, case="undefined"):
-        """Joins two objects 'u' and 'v' if the time constraint holds and produces a resulting record.
+    def join(self, node_u, node_v, case="undefined"):
+        """Joins two Node objects 'u' and 'v' if the time constraint holds and produces a resulting record.
+            .data - holds their data object
+            .side - marks the side of the buffer ("left", "right" or None)
         The join_function and commit_function can be set arbitrary, see __init__()
 
         :param case: String
             Specifies the case that leads to the join
-        :param u: object that holds a record regardless if it is a left or right join partner
-        :param v: object that holds a record regardless if it is a left or right join partner
+        :param node_u: Node object that holds a record regardless if it is a left or right join partner
+        :param node_v: Node object that holds a record regardless if it is a left or right join partner
         """
+        u = node_u.data
+        v = node_v.data
         # check the delta time constraint, don't join if not met
-        if abs(u.get('record').get_time() - v.get('record').get_time()) <= self.delta_time:
-            # decide based on the defined left_quantity, which record is joined as left join partner
-            if v.get('record').get_quantity() == self.left_quantity:
-                record_left = v.get('record')
-                record_right = u.get('record')
-            else:
-                # select them from the normal order, default
-                record_left = u.get('record')
-                record_right = v.get('record')
+        if self.delta_time and abs(u.get('record').get_time() - v.get('record').get_time()) > self.delta_time:
+            return None
 
-            # apply an arbitrary join function to merge both records, if set
-            if self.join_function:
-                record = self.join_function(record_left=record_left, record_right=record_right)
-            else:
-                # apply the default join that is a merge using the records' quantity names as prefix
-                record = {"r.quantity": record_left.get_quantity(), "r.phenomenonTime": record_left.get_time(),
-                          "r.result": record_left.get_result(), "s.quantity": record_right.get_quantity(),
-                          "s.phenomenonTime": record_right.get_time(), "s.result": record_right.get_result()}
-                if record_left.get_metadata() != dict():
-                    record["r.metadata"] = record_left.get_metadata()
-                if record_right.get_metadata() != dict():
-                    record["s.metadata"] = record_right.get_metadata()
+        # decide based on the defined left_quantity, which record is joined as left join partner
+        if node_v.side == "left":
+            record_left = v.get('record')
+            record_right = u.get('record')
+        else:
+            # select them from the normal order, default
+            record_left = u.get('record')
+            record_right = v.get('record')
 
-            # print join to stdout and/or append to resulting buffer
-            if self.verbose:
-                print(f" join case {case}:\t {record}.")
-            if self.buffer_results and record is not None:
-                self.buffer_out.append(record)
+        # apply an arbitrary join function to merge both records, if set
+        if self.join_function:
+            record = self.join_function(record_left=record_left, record_right=record_right)
+        else:
+            # apply the default join that is a merge using the records' quantity names as prefix
+            record = {"r.quantity": record_left.get_quantity(), "r.phenomenonTime": record_left.get_time(),
+                      "r.result": record_left.get_result(), "s.quantity": record_right.get_quantity(),
+                      "s.phenomenonTime": record_right.get_time(), "s.result": record_right.get_result()}
+            if record_left.get_metadata() != dict():
+                record["r.metadata"] = record_left.get_metadata()
+            if record_right.get_metadata() != dict():
+                record["s.metadata"] = record_right.get_metadata()
+
+        self.counter_joins += 1
+        # print join to stdout and/or append to resulting buffer
+        if self.verbose:
+            print(f" join case {case}:\t {record}.")
+        if self.buffer_results and record is not None:
+            self.buffer_out.append(record)
 
 
 def join_fct(record_left, record_right):

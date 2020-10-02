@@ -13,9 +13,9 @@ import time
 import json
 import math
 import uuid
-
 import pytest
 
+import confluent_kafka
 import confluent_kafka.admin as kafka_admin
 from confluent_kafka import Producer, Consumer, TopicPartition
 
@@ -32,8 +32,10 @@ KAFKA_TOPIC_OUT = "test.machine.out"
 EVENT_FILE = "test_events.json"  # file of the records, not a json itself, but each row is
 QUANTITIES = ["actSpeed_C11", "vaTorque_C11"]
 RES_QUANTITY = "vaPower_C11"
-MAX_JOIN_CNT = 50  # maximum of 20000 rows
-VERBOSE = True
+MAX_JOIN_CNT = None  # maximum of 1500 rows
+MAX_BATCH_SIZE = 100
+TRANSACTION_TIME = 0.1
+VERBOSE = False
 
 if sys.platform.startswith("win"):
     pytest.skip("skipping unix-only tests", allow_module_level=True)
@@ -54,29 +56,11 @@ kafka_consumer = Consumer({
 })
 
 kafka_consumer.subscribe([KAFKA_TOPIC_IN_0, KAFKA_TOPIC_IN_1])
-kafka_consumer.assign([TopicPartition(KAFKA_TOPIC_IN_0), TopicPartition(KAFKA_TOPIC_IN_1)])
+# kafka_consumer.assign([TopicPartition(KAFKA_TOPIC_IN_0), TopicPartition(KAFKA_TOPIC_IN_1)])
 
 # create a Kafka producer
 kafka_producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS,
                            "transactional.id": 'eos-transactions1.py'})
-
-
-class Counter:
-    """
-    A counter class that is used to count the number of joins
-    """
-
-    def __init__(self):
-        self.cnt = 0
-
-    def increment(self):
-        self.cnt += 1
-
-    def get(self):
-        return self.cnt
-
-
-cnt_out = Counter()
 
 
 @pytest.mark.tryfirst()
@@ -100,8 +84,12 @@ def join_fct(record_left, record_right):
     kafka_producer.produce(KAFKA_TOPIC_OUT, json.dumps(record_dict).encode('utf-8'),
                            key=f"{record_dict.get('thing')}.{record_dict.get('quantity')}".encode('utf-8'),
                            callback=delivery_report)
-    cnt_out.increment()
 
+    return record_from_dict(record_dict)
+
+
+@pytest.mark.tryfirst()
+def commit_transaction(stream_buffer, verbose=False, commit_time=time.time()):
     # Send the consumer's position to transaction to commit them along with the transaction, committing both
     # input and outputs in the same transaction is what provides EOS.
     kafka_producer.send_offsets_to_transaction(
@@ -112,18 +100,20 @@ def join_fct(record_left, record_right):
     # Begin new transaction
     kafka_producer.begin_transaction()
 
-    return record_from_dict(record_dict)
+    # commit the offset of the latest records that got obsolete in order to consume and join always the same Records.
+    latest_records = []
+    if stream_buffer.last_removed_left:
+        latest_records.append(stream_buffer.last_removed_left.data.get("record"))
+    if stream_buffer.last_removed_right:
+        latest_records.append(stream_buffer.last_removed_right.data.get("record"))
 
-
-@pytest.mark.tryfirst()
-def commit_fct(record_to_commit):
-    # Test the commit: Uncomment commit() in order to consume and join always the same Records.
-    # It is of importance that the
-    rec = record_to_commit.data.get("record")
     # Commit message’s offset + 1
     kafka_consumer.commit(offsets=[TopicPartition(topic=rec.get("topic"),
                                                   partition=rec.get("partition"),
-                                                  offset=rec.get("offset") + 1)])  # commit the next (n+1) offset
+                                                  offset=rec.get("offset") + 1)  # commit the next (n+1) offset
+                                   for rec in latest_records])
+    if verbose:
+        print(f"Committed to latest offset at {commit_time:.6f}.")
 
 
 def test_topic_creation():
@@ -141,7 +131,7 @@ def test_topic_creation():
             print(f"Topic '{topic}' created")
         except Exception as e:
             print(f"Topic '{topic}' couldn't be created: {e}")
-    k_admin_client.poll(0.1)  # small timeout for synchronizing
+    k_admin_client.poll(3.1)  # small timeout for synchronizing
 
     topics = k_admin_client.list_topics(timeout=3.0).topics
     assert KAFKA_TOPIC_IN_0 in topics
@@ -156,7 +146,7 @@ def test_write_sample_data():
     # open the file containing the events, skip first 99000 rows to get the rows of interest
     with open(EVENT_FILE) as f:
         events = f.readlines()
-        events = [event for event in events if QUANTITIES[0] in event or QUANTITIES[1] in event][:MAX_JOIN_CNT]
+        events = [event for event in events if QUANTITIES[0] in event or QUANTITIES[1] in event]
 
     producer = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})
 
@@ -185,12 +175,13 @@ def test_write_sample_data():
     producer.flush()
     print(f"Wrote {len(events)} records into {KAFKA_TOPIC_IN_0} and {KAFKA_TOPIC_IN_1}.")
 
-    assert len(events) == MAX_JOIN_CNT
+    assert len(events) == 5000
 
 
 def test_commit_transaction(round_nr=1):
     print(f"\n################################ commit, transaction {round_nr} ######################################\n")
 
+    # start transaction if it is the first round
     if round_nr == 1:
         # Initialize producer transaction.
         kafka_producer.init_transactions()
@@ -198,54 +189,66 @@ def test_commit_transaction(round_nr=1):
         kafka_producer.begin_transaction()
 
     # commit_fct is empty and join_fct is with transactions
-    stream_buffer = StreamBuffer(instant_emit=True, left="actSpeed_C11", right="vaTorque_C11",
-                                 buffer_results=True, delta_time=1,
-                                 verbose=VERBOSE, join_function=join_fct, commit_function=commit_fct)
-    cnt_left = cnt_right = 0
-    cnt_out.cnt = 0
-    st0 = time.time()
+    lsb = StreamBuffer(instant_emit=True, left="actSpeed_C11", right="vaTorque_C11",
+                       buffer_results=True, delta_time=1,
+                       verbose=VERBOSE, join_function=join_fct)
+
+    start_time = stop_time = last_transaction_time = time.time()
+    n_none_polls = 0
+    started = False
     while True:
-        msg = kafka_consumer.poll(0.1)
-        # kafka_consumer.consume(num_messages=10, timeout=0.1) is faster, returns a list
+        # msg = kafka_consumer.poll(0.1)
+        msgs = kafka_consumer.consume(num_messages=MAX_BATCH_SIZE, timeout=0.1)  # is faster, returns a list
 
         # if there is no msg within a second, continue
-        if msg is None:
-            if time.time() - st0 > 5 + MAX_JOIN_CNT / 10000:
-                print("  Break as there won't come enough messages.")
-                break
+        if n_none_polls >= 30:  # time.time() - init_time > MAX_TIMEOUT:, it does need around 2 seconds
+            print("  Break as there won't come any further messages.")
+            break
+        elif len(msgs) == 0:
+            n_none_polls += 1
             continue
-        elif msg.error():
-            raise Exception("Consumer error: {}".format(msg.error()))
-        elif st0 == 0:
-            st0 = time.time()
-            print("Start the count clock")
+        else:
+            # update to latest running-time
+            stop_time = time.time()
+            if not started:  # set starter flag if first message was consumed
+                started = True
+                print("Start the count clock")
+                # update to latest not-started-time
+                start_time = stop_time
 
-        record_json = json.loads(msg.value().decode('utf-8'))
-        if VERBOSE:
-            if record_json.get("quantity").endswith("_C11"):
-                print(f"Received new record: {record_json}")
+        # iterate over each message that was consumed
+        for msg in msgs:
+            record_json = json.loads(msg.value().decode('utf-8'))
+            if VERBOSE:
+                if record_json.get("quantity").endswith("_C11"):
+                    print(f"Received new record: {record_json}")
 
-        # create a Record from the json
-        record = Record(
-            thing=record_json.get("thing"),
-            quantity=record_json.get("quantity"),
-            timestamp=record_json.get("phenomenonTime"),
-            result=record_json.get("result"),
-            topic=msg.topic(), partition=msg.partition(), offset=msg.offset())
+            # create a Record from the json
+            record = Record(
+                thing=record_json.get("thing"),
+                quantity=record_json.get("quantity"),
+                timestamp=record_json.get("phenomenonTime"),
+                result=record_json.get("result"),
+                topic=msg.topic(), partition=msg.partition(), offset=msg.offset())
 
-        # ingest the record into the StreamBuffer instance, instant emit
-        if msg.topic() == KAFKA_TOPIC_IN_0:  # "actSpeed_C11":
-            stream_buffer.ingest_left(record)  # with instant emit
-            cnt_left += 1
-        elif msg.topic() == KAFKA_TOPIC_IN_1:  # "vaTorque_C11":
-            stream_buffer.ingest_right(record)
-            cnt_right += 1
+            # ingest the record into the StreamBuffer instance, instant emit
+            if msg.topic() == KAFKA_TOPIC_IN_0:  # "actSpeed_C11":
+                lsb.ingest_left(record)  # with instant emit
+            elif msg.topic() == KAFKA_TOPIC_IN_1:  # "vaTorque_C11":
+                lsb.ingest_right(record)
 
-        if MAX_JOIN_CNT is not None and cnt_out.get() >= MAX_JOIN_CNT:
+        # commit the transaction every TRANSACTION_TIME
+        if stop_time >= last_transaction_time + TRANSACTION_TIME:
+            last_transaction_time = stop_time
+            commit_transaction(stream_buffer=lsb, verbose=VERBOSE, commit_time=last_transaction_time)
+
+        # break if there were MAX_JOIN_COUNT or more joins
+        if MAX_JOIN_CNT is not None and lsb.get_join_counter() >= MAX_JOIN_CNT:
             print("Reached the maximal join count, graceful stopping.")
             break
+
+        # sleep to allow other processes to run
         time.sleep(0)
-    ts_stop = time.time()
 
     try:
         # commit processed message offsets to the transaction
@@ -254,29 +257,33 @@ def test_commit_transaction(round_nr=1):
             kafka_consumer.consumer_group_metadata())
         # commit transaction
         kafka_producer.commit_transaction()
-    except:
-        print("couldn't commit transaction.")
-        pass
+    except confluent_kafka.KafkaException as e:
+        if confluent_kafka.KafkaError.str(e.args[0]) == "Operation not valid in state Ready":
+            print("_STATE exception, should occur here.")
+        else:
+            print("Couldn't commit transaction.")
+            raise e
 
-    events_out = stream_buffer.fetch_results()
-    print(f"\nLengths: |{RES_QUANTITY}| = {len(events_out)}, "
-          f"|{QUANTITIES[0]}| = {cnt_left}, |{QUANTITIES[1]}| = {cnt_right}.")
-    print(f"Joined time-series {ts_stop - st0:.5g} s long, "
-          f"that are {len(events_out) / (ts_stop - st0):.6g} joins per second.")
-
+    events_out = lsb.fetch_results()
+    print(f"\nLengths: |{RES_QUANTITY}| = {lsb.get_join_counter()}, "
+          f"|{QUANTITIES[0]}| = {lsb.get_left_counter()}, |{QUANTITIES[1]}| = {lsb.get_right_counter()}.")
+    if start_time != stop_time:
+        print(f"Joined time-series {stop_time - start_time:.6f} s long, "
+              f"that are {lsb.get_join_counter() / (stop_time - start_time):.2f} joins per second.")
     if round_nr == 1:
-        assert len(events_out) == 51
-        # assert cnt_left == 162  # this values can be different
-        # assert cnt_right == 30
+        print(f" first record: \t{events_out[0]}")
+        print(f" last record:  \t{events_out[-1]}")
+        assert len(events_out) == 1595
+        # assert cnt_left == 2681  # this values can be different
+        # assert cnt_right == 4705
         print(f"Result #0: {events_out[0]}")
         assert events_out[0].get_quantity() == "vaPower_C11"
         assert round(events_out[0].get_time() - 1554096460.415, 3) == 0
-        assert round(events_out[0].get_result() - 86.71966370389097, 3) == 0
-        assert round(events_out[-1].get_time() - 1554096505.38, 3) == 0
-        assert round(events_out[-1].get_result() - 2010.8941815187334, 3) == 0
-    else:
+        assert round(events_out[0].get_result() - 86.71966370389097, 5) == 0
+        assert round(events_out[-1].get_time() - 1554355545.929, 3) == 0
+        assert round(events_out[-1].get_result() - 0.0, 5) == 0
+    elif round_nr == 2:
         assert len(events_out) == 0
-        assert cnt_left + cnt_right > 0
 
 
 def test_commit_transaction_2():
